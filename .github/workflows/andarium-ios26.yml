@@ -1,0 +1,851 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: Build Andarium for iOS 26
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: andarium-ios26
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      CMAKE_BUILD_PARALLEL_LEVEL: 3
+      UML_APPLE_GPU_DEPENDENCY_JOBS: 3
+      UML_IOS_NETWORK_DEPENDENCY_JOBS: 3
+      UML_IOS_STORAGE_DEPENDENCY_JOBS: 3
+      UML_IOS_ZSTD_DEPENDENCY_JOBS: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Apply the reviewed iOS 26 source backport
+        run: |
+          cat > "$RUNNER_TEMP/ios26.patch" <<'BACKPORT'
+          diff --git a/Andarium/Andarium.xcodeproj/project.xcproj b/Andarium/Andarium.xcodeproj/project.xcproj
+          index f6304940e..2acca8e31 100644
+          --- a/Andarium/Andarium.xcodeproj/project.xcproj
+          +++ b/Andarium/Andarium.xcodeproj/project.xcproj
+          @@ -123,7 +123,7 @@
+                   "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+                   "CODE_SIGN_ENTITLEMENTS": "Config/Andarium.entitlements",
+                   "CODE_SIGN_STYLE": "Automatic",
+          -        "CURRENT_PROJECT_VERSION": "9",
+          +        "CURRENT_PROJECT_VERSION": "10",
+                   "ENABLE_PREVIEWS": "YES",
+                   "ENABLE_USER_SCRIPT_SANDBOXING": "NO",
+                   "FRAMEWORK_SEARCH_PATHS": [
+          @@ -279,7 +279,7 @@
+                 "UML_APP_STORE_APPLICATION=1",
+                 "$(inherited)",
+               ],
+          -    "IPHONEOS_DEPLOYMENT_TARGET": "27.0",
+          +    "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
+               "ONLY_ACTIVE_ARCH[config=Debug]": "YES",
+               "SDKROOT": "iphoneos",
+               "SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=AppStore]": "APP_STORE $(inherited)",
+          diff --git a/Andarium/AndariumCore/Package.swift b/Andarium/AndariumCore/Package.swift
+          index 1e920d7c0..e3d8ef7ff 100644
+          --- a/Andarium/AndariumCore/Package.swift
+          +++ b/Andarium/AndariumCore/Package.swift
+          @@ -9,7 +9,7 @@ import PackageDescription
+           // applications decide the same way.
+           let package = Package(
+               name: "AndariumCore",
+          -    platforms: [.macOS("27.0"), .iOS("27.0")],
+          +    platforms: [.macOS("27.0"), .iOS("26.0")],
+               products: [
+                   .library(name: "AndariumCore", targets: ["AndariumCore"]),
+               ],
+          diff --git a/Andarium/README.md b/Andarium/README.md
+          index aa31f01c6..1a47e7156 100644
+          --- a/Andarium/README.md
+          +++ b/Andarium/README.md
+          @@ -56,6 +56,10 @@ xcodebuild -project Andarium/Andarium.xcodeproj -scheme AndariumPreview \
+           
+           ## Devices
+           
+          +The iOS device and Simulator builds support iOS 26.0 and later. Audio uses
+          +the legacy interruption notification on iOS 26 and the session context
+          +notifications on iOS 27 and later.
+          +
+           The guest is drawn with Metal 4, which the A14 and later chips have. No
+           capability key names the chip, so `UIRequiredDeviceCapabilities` names `metal`
+           and the application asks the GPU for the Metal 4 family at launch
+          diff --git a/GuestHost/Core/Package.swift b/GuestHost/Core/Package.swift
+          index 8c456f85a..eca3b3ec0 100644
+          --- a/GuestHost/Core/Package.swift
+          +++ b/GuestHost/Core/Package.swift
+          @@ -9,7 +9,7 @@ import PackageDescription
+           // application and is not a package (GuestHost/README.md).
+           let package = Package(
+               name: "GuestHostCore",
+          -    platforms: [.macOS("27.0"), .iOS("27.0")],
+          +    platforms: [.macOS("27.0"), .iOS("26.0")],
+               products: [
+                   .library(name: "GuestHostCore", targets: ["GuestHostCore"]),
+               ],
+          diff --git a/Kernarium/Kernarium.xcodeproj/project.pbxproj b/Kernarium/Kernarium.xcodeproj/project.pbxproj
+          index e7648c5ab..557796338 100644
+          --- a/Kernarium/Kernarium.xcodeproj/project.pbxproj
+          +++ b/Kernarium/Kernarium.xcodeproj/project.pbxproj
+          @@ -515,7 +515,7 @@
+           				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+           				GCC_WARN_UNUSED_FUNCTION = YES;
+           				GCC_WARN_UNUSED_VARIABLE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+           				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+           				MTL_FAST_MATH = YES;
+          @@ -577,7 +577,7 @@
+           				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+           				GCC_WARN_UNUSED_FUNCTION = YES;
+           				GCC_WARN_UNUSED_VARIABLE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+           				MTL_ENABLE_DEBUG_INFO = NO;
+           				MTL_FAST_MATH = YES;
+          @@ -618,7 +618,7 @@
+           				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+           				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+           				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+           				MARKETING_VERSION = 1.0;
+           				PRODUCT_BUNDLE_IDENTIFIER = com.imxieyi.Kernarium;
+          @@ -666,7 +666,7 @@
+           				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+           				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+           				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+           				MARKETING_VERSION = 1.0;
+           				PRODUCT_BUNDLE_IDENTIFIER = com.imxieyi.Kernarium;
+          @@ -692,7 +692,7 @@
+           				CODE_SIGN_STYLE = Automatic;
+           				CURRENT_PROJECT_VERSION = 1;
+           				GENERATE_INFOPLIST_FILE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				MARKETING_VERSION = 1.0;
+           				OTHER_LDFLAGS = (
+           					"-framework",
+          @@ -727,7 +727,7 @@
+           				CODE_SIGN_STYLE = Automatic;
+           				CURRENT_PROJECT_VERSION = 1;
+           				GENERATE_INFOPLIST_FILE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				MARKETING_VERSION = 1.0;
+           				OTHER_LDFLAGS = (
+           					"-framework",
+          @@ -761,7 +761,7 @@
+           				CODE_SIGN_STYLE = Automatic;
+           				CURRENT_PROJECT_VERSION = 1;
+           				GENERATE_INFOPLIST_FILE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				MARKETING_VERSION = 1.0;
+           				PRODUCT_BUNDLE_IDENTIFIER = com.imxieyi.KernariumUITests;
+           				PRODUCT_NAME = "$(TARGET_NAME)";
+          @@ -784,7 +784,7 @@
+           				CODE_SIGN_STYLE = Automatic;
+           				CURRENT_PROJECT_VERSION = 1;
+           				GENERATE_INFOPLIST_FILE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				MARKETING_VERSION = 1.0;
+           				PRODUCT_BUNDLE_IDENTIFIER = com.imxieyi.KernariumUITests;
+           				PRODUCT_NAME = "$(TARGET_NAME)";
+          @@ -807,7 +807,7 @@
+           				CODE_SIGN_STYLE = Automatic;
+           				CURRENT_PROJECT_VERSION = 1;
+           				GENERATE_INFOPLIST_FILE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				MARKETING_VERSION = 1.0;
+           				PRODUCT_BUNDLE_IDENTIFIER = com.imxieyi.KernariumAutomation;
+           				PRODUCT_NAME = "$(TARGET_NAME)";
+          @@ -830,7 +830,7 @@
+           				CODE_SIGN_STYLE = Automatic;
+           				CURRENT_PROJECT_VERSION = 1;
+           				GENERATE_INFOPLIST_FILE = YES;
+          -				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+          +				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+           				MARKETING_VERSION = 1.0;
+           				PRODUCT_BUNDLE_IDENTIFIER = com.imxieyi.KernariumAutomation;
+           				PRODUCT_NAME = "$(TARGET_NAME)";
+          diff --git a/cmake/toolchains/Apple.cmake b/cmake/toolchains/Apple.cmake
+          index 30644b30b..43b010518 100644
+          --- a/cmake/toolchains/Apple.cmake
+          +++ b/cmake/toolchains/Apple.cmake
+          @@ -12,8 +12,10 @@ if(UML_APPLE_PLATFORM STREQUAL "macos")
+               set(_uml_apple_platform macosx Darwin)
+           elseif(UML_APPLE_PLATFORM STREQUAL "ios")
+               set(_uml_apple_platform iphoneos iOS)
+          +    set(_uml_apple_deployment_target 26.0)
+           elseif(UML_APPLE_PLATFORM STREQUAL "ios-simulator")
+               set(_uml_apple_platform iphonesimulator iOS)
+          +    set(_uml_apple_deployment_target 26.0)
+           else()
+               message(FATAL_ERROR "Unknown UML_APPLE_PLATFORM=${UML_APPLE_PLATFORM}")
+           endif()
+          diff --git a/darwin/device/audio/apple_microphone_input.mm b/darwin/device/audio/apple_microphone_input.mm
+          index 51833329b..0dd740f1d 100644
+          --- a/darwin/device/audio/apple_microphone_input.mm
+          +++ b/darwin/device/audio/apple_microphone_input.mm
+          @@ -227,48 +227,78 @@ public:
+               {
+           #if TARGET_OS_IPHONE
+                   const std::weak_ptr<Capture> weak = capture_;
+          -        /* iOS 27 replaces the interruption notification with two, which the
+          -         * playback sink observes too: the session becoming inactive, which
+          -         * also reports the app's own deactivations (its release of the
+          -         * session when the microphone stops), and the system's resumption
+          -         * recommendation. An interruption is a deactivation that carries an
+          -         * interruption context. */
+          -        deactivationObserver_ = [NSNotificationCenter.defaultCenter
+          -            addObserverForName:AVAudioSessionDidBecomeInactiveNotification
+          -                        object:[AVAudioSession sharedInstance]
+          -                         queue:nil
+          -                    usingBlock:^(NSNotification* notification) {
+          -                      const auto capture = weak.lock();
+          -                      if (!capture)
+          -                          return;
+          -                      const AVAudioSessionDeactivationContext* context =
+          -                          notification.userInfo
+          -                              [AVAudioSessionDeactivationContextKey];
+          -                      if (context.interruptionContext != nil)
+          -                          capture->interrupt();
+          -                    }];
+          -        resumptionObserver_ = [NSNotificationCenter.defaultCenter
+          -            addObserverForName:AVAudioSessionResumptionRecommendationNotification
+          -                        object:[AVAudioSession sharedInstance]
+          -                         queue:nil
+          -                    usingBlock:^(NSNotification* notification) {
+          -                      const auto capture = weak.lock();
+          -                      if (!capture)
+          -                          return;
+          -                      const AVAudioSessionResumptionContext* context =
+          -                          notification.userInfo
+          -                              [AVAudioSessionResumptionContextKey];
+          -                      capture->resume(context.recommendation ==
+          -                          AVAudioSessionResumptionRecommendationShouldResume);
+          -                    }];
+          +        if (@available(iOS 27.0, *)) {
+          +            /* iOS 27 replaces the interruption notification with two, which the
+          +             * playback sink observes too: the session becoming inactive, which
+          +             * also reports the app's own deactivations (its release of the
+          +             * session when the microphone stops), and the system's resumption
+          +             * recommendation. An interruption is a deactivation that carries an
+          +             * interruption context. */
+          +            deactivationObserver_ = [NSNotificationCenter.defaultCenter
+          +                addObserverForName:AVAudioSessionDidBecomeInactiveNotification
+          +                            object:[AVAudioSession sharedInstance]
+          +                             queue:nil
+          +                        usingBlock:^(NSNotification* notification) {
+          +                          const auto capture = weak.lock();
+          +                          if (!capture)
+          +                              return;
+          +                          const AVAudioSessionDeactivationContext* context =
+          +                              notification.userInfo
+          +                                  [AVAudioSessionDeactivationContextKey];
+          +                          if (context.interruptionContext != nil)
+          +                              capture->interrupt();
+          +                        }];
+          +            resumptionObserver_ = [NSNotificationCenter.defaultCenter
+          +                addObserverForName:AVAudioSessionResumptionRecommendationNotification
+          +                            object:[AVAudioSession sharedInstance]
+          +                             queue:nil
+          +                        usingBlock:^(NSNotification* notification) {
+          +                          const auto capture = weak.lock();
+          +                          if (!capture)
+          +                              return;
+          +                          const AVAudioSessionResumptionContext* context =
+          +                              notification.userInfo
+          +                                  [AVAudioSessionResumptionContextKey];
+          +                          capture->resume(context.recommendation ==
+          +                              AVAudioSessionResumptionRecommendationShouldResume);
+          +                        }];
+          +        } else {
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +            legacyInterruptionObserver_ = [NSNotificationCenter.defaultCenter
+          +                addObserverForName:AVAudioSessionInterruptionNotification
+          +                            object:[AVAudioSession sharedInstance]
+          +                             queue:nil
+          +                        usingBlock:^(NSNotification* notification) {
+          +                          NSNumber* type = notification.userInfo[AVAudioSessionInterruptionTypeKey];
+          +                          if (type == nil)
+          +                              return;
+          +                          const bool began = type.unsignedIntegerValue == AVAudioSessionInterruptionTypeBegan;
+          +                          NSNumber* options = notification.userInfo[AVAudioSessionInterruptionOptionKey];
+          +                          const bool shouldResume = (options.unsignedIntegerValue &
+          +                              AVAudioSessionInterruptionOptionShouldResume) != 0;
+          +                          const auto capture = weak.lock();
+          +                          if (!capture)
+          +                              return;
+          +                          if (began)
+          +                              capture->interrupt();
+          +                          else
+          +                              capture->resume(shouldResume);
+          +                        }];
+          +#pragma clang diagnostic pop
+          +        }
+           #endif
+               }
+           
+               ~AppleMicrophoneInput() override
+               {
+           #if TARGET_OS_IPHONE
+          -        [NSNotificationCenter.defaultCenter removeObserver:deactivationObserver_];
+          -        [NSNotificationCenter.defaultCenter removeObserver:resumptionObserver_];
+          +        if (deactivationObserver_ != nil)
+          +            [NSNotificationCenter.defaultCenter removeObserver:deactivationObserver_];
+          +        if (resumptionObserver_ != nil)
+          +            [NSNotificationCenter.defaultCenter removeObserver:resumptionObserver_];
+          +        if (legacyInterruptionObserver_ != nil)
+          +            [NSNotificationCenter.defaultCenter removeObserver:legacyInterruptionObserver_];
+           #endif
+                   capture_->stop();
+               }
+          @@ -285,6 +315,7 @@ public:
+           private:
+               std::shared_ptr<Capture> capture_;
+           #if TARGET_OS_IPHONE
+          +    id __strong legacyInterruptionObserver_;
+               id __strong deactivationObserver_;
+               id __strong resumptionObserver_;
+           #endif
+          diff --git a/darwin/device/audio/apple_playback_sink.mm b/darwin/device/audio/apple_playback_sink.mm
+          index 4158b0be1..35e62f562 100644
+          --- a/darwin/device/audio/apple_playback_sink.mm
+          +++ b/darwin/device/audio/apple_playback_sink.mm
+          @@ -199,44 +199,73 @@ public:
+                                 if (const auto flags = weakNotifications.lock())
+                                     flags->signal(flags->configurationChanged);
+                               }];
+          -        /* iOS 27 replaces the interruption notification with two: the session
+          -         * becoming inactive, which also reports the app's own deactivations,
+          -         * and the system's resumption recommendation. An interruption is a
+          -         * deactivation that carries an interruption context. Every
+          -         * recommendation ends the interruption; whether the sink takes the
+          -         * session back at once depends on its advice (see endInterruption). */
+          -        deactivationObserver_ = [[NSNotificationCenter defaultCenter]
+          -            addObserverForName:AVAudioSessionDidBecomeInactiveNotification
+          -                        object:[AVAudioSession sharedInstance]
+          -                         queue:nil
+          -                    usingBlock:^(NSNotification* notification) {
+          -                      const auto flags = weakNotifications.lock();
+          -                      if (!flags)
+          -                          return;
+          -                      const AVAudioSessionDeactivationContext* context =
+          -                          notification.userInfo[
+          -                              AVAudioSessionDeactivationContextKey];
+          -                      if (context.interruptionContext != nil)
+          -                          flags->signal(flags->interruptionBegan);
+          -                    }];
+          -        resumptionObserver_ = [[NSNotificationCenter defaultCenter]
+          -            addObserverForName:AVAudioSessionResumptionRecommendationNotification
+          -                        object:[AVAudioSession sharedInstance]
+          -                         queue:nil
+          -                    usingBlock:^(NSNotification* notification) {
+          -                      const auto flags = weakNotifications.lock();
+          -                      if (!flags)
+          -                          return;
+          -                      const AVAudioSessionResumptionContext* context =
+          -                          notification.userInfo[
+          -                              AVAudioSessionResumptionContextKey];
+          -                      if (context.recommendation ==
+          -                          AVAudioSessionResumptionRecommendationShouldResume) {
+          -                          flags->resumeRecommended.store(
+          -                              true, std::memory_order_release);
+          -                      }
+          -                      flags->signal(flags->interruptionEnded);
+          -                    }];
+          +        if (@available(iOS 27.0, *)) {
+          +            /* iOS 27 replaces the interruption notification with two: the session
+          +             * becoming inactive, which also reports the app's own deactivations,
+          +             * and the system's resumption recommendation. An interruption is a
+          +             * deactivation that carries an interruption context. Every
+          +             * recommendation ends the interruption; whether the sink takes the
+          +             * session back at once depends on its advice (see endInterruption). */
+          +            deactivationObserver_ = [[NSNotificationCenter defaultCenter]
+          +                addObserverForName:AVAudioSessionDidBecomeInactiveNotification
+          +                            object:[AVAudioSession sharedInstance]
+          +                             queue:nil
+          +                        usingBlock:^(NSNotification* notification) {
+          +                          const auto flags = weakNotifications.lock();
+          +                          if (!flags)
+          +                              return;
+          +                          const AVAudioSessionDeactivationContext* context =
+          +                              notification.userInfo[
+          +                                  AVAudioSessionDeactivationContextKey];
+          +                          if (context.interruptionContext != nil)
+          +                              flags->signal(flags->interruptionBegan);
+          +                        }];
+          +            resumptionObserver_ = [[NSNotificationCenter defaultCenter]
+          +                addObserverForName:AVAudioSessionResumptionRecommendationNotification
+          +                            object:[AVAudioSession sharedInstance]
+          +                             queue:nil
+          +                        usingBlock:^(NSNotification* notification) {
+          +                          const auto flags = weakNotifications.lock();
+          +                          if (!flags)
+          +                              return;
+          +                          const AVAudioSessionResumptionContext* context =
+          +                              notification.userInfo[
+          +                                  AVAudioSessionResumptionContextKey];
+          +                          if (context.recommendation ==
+          +                              AVAudioSessionResumptionRecommendationShouldResume) {
+          +                              flags->resumeRecommended.store(
+          +                                  true, std::memory_order_release);
+          +                          }
+          +                          flags->signal(flags->interruptionEnded);
+          +                        }];
+          +        } else {
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +            legacyInterruptionObserver_ = [NSNotificationCenter.defaultCenter
+          +                addObserverForName:AVAudioSessionInterruptionNotification
+          +                            object:[AVAudioSession sharedInstance]
+          +                             queue:nil
+          +                        usingBlock:^(NSNotification* notification) {
+          +                          NSNumber* type = notification.userInfo[AVAudioSessionInterruptionTypeKey];
+          +                          if (type == nil)
+          +                              return;
+          +                          const bool began = type.unsignedIntegerValue == AVAudioSessionInterruptionTypeBegan;
+          +                          NSNumber* options = notification.userInfo[AVAudioSessionInterruptionOptionKey];
+          +                          const bool shouldResume = (options.unsignedIntegerValue &
+          +                              AVAudioSessionInterruptionOptionShouldResume) != 0;
+          +                          const auto flags = weakNotifications.lock();
+          +                          if (!flags)
+          +                              return;
+          +                          if (began) {
+          +                              flags->signal(flags->interruptionBegan);
+          +                          } else {
+          +                              if (shouldResume)
+          +                                  flags->resumeRecommended.store(true, std::memory_order_release);
+          +                              flags->signal(flags->interruptionEnded);
+          +                          }
+          +                        }];
+          +#pragma clang diagnostic pop
+          +        }
+           #endif
+               }
+           
+          @@ -247,10 +276,12 @@ public:
+                           removeObserver:configurationObserver_];
+           #if TARGET_OS_IPHONE
+                       [[NSNotificationCenter defaultCenter] removeObserver:routeObserver_];
+          -            [[NSNotificationCenter defaultCenter]
+          -                removeObserver:deactivationObserver_];
+          -            [[NSNotificationCenter defaultCenter]
+          -                removeObserver:resumptionObserver_];
+          +            if (deactivationObserver_ != nil)
+          +                [NSNotificationCenter.defaultCenter removeObserver:deactivationObserver_];
+          +            if (resumptionObserver_ != nil)
+          +                [NSNotificationCenter.defaultCenter removeObserver:resumptionObserver_];
+          +            if (legacyInterruptionObserver_ != nil)
+          +                [NSNotificationCenter.defaultCenter removeObserver:legacyInterruptionObserver_];
+           #endif
+                   } @catch (NSException*) {
+                   }
+          @@ -1270,6 +1301,7 @@ private:
+               id __strong configurationObserver_;
+           #if TARGET_OS_IPHONE
+               id __strong routeObserver_;
+          +    id __strong legacyInterruptionObserver_;
+               id __strong deactivationObserver_;
+               id __strong resumptionObserver_;
+               // The system has the session, and no end has come yet.
+          diff --git a/dependencies/README.md b/dependencies/README.md
+          index 158e46919..4a871378c 100644
+          --- a/dependencies/README.md
+          +++ b/dependencies/README.md
+          @@ -90,9 +90,8 @@ commits the cache holds. An installed prefix is never replaced automatically:
+           build the new one beside it. Prefix verification checks the manifest rows, the
+           patched sources' trees in `share/uml-dependencies/source-trees.tsv`, platform
+           and deployment target, expected payloads, framework install names, and the
+          -absence of undeclared or legacy providers. Every macOS and iOS product prefix
+          -builds and verifies at a 27.0 deployment target; the kernel host tools are the
+          -exception. A prefix compares only the manifest rows its product consumes, so a
+          +absence of undeclared or legacy providers. macOS product prefixes build and verify at a 27.0 deployment target; iOS
+          +device and Simulator prefixes use 26.0. Kernel host tools are the exception. A prefix compares only the manifest rows its product consumes, so a
+           change to another product's row does not invalidate it, while a change to one
+           of its own rows requires a rebuild.
+           
+          diff --git a/dependencies/build-apple-gpu-llvm.sh b/dependencies/build-apple-gpu-llvm.sh
+          index b23e3dc5c..a6a93f0bb 100755
+          --- a/dependencies/build-apple-gpu-llvm.sh
+          +++ b/dependencies/build-apple-gpu-llvm.sh
+          @@ -25,7 +25,7 @@ PREFIX=
+           WORK_ROOT=
+           JOBS=8
+           # Every Apple product, and the build machine's own pass, builds at this floor.
+          -DEPLOYMENT_TARGET=27.0
+          +DEPLOYMENT_TARGET=26.0
+           
+           fail()
+           {
+          diff --git a/dependencies/build-apple-gpu.sh b/dependencies/build-apple-gpu.sh
+          index c5f6b0ad0..637ba8486 100755
+          --- a/dependencies/build-apple-gpu.sh
+          +++ b/dependencies/build-apple-gpu.sh
+          @@ -103,6 +103,9 @@ esac
+           
+           # Every Apple product, and the build machine's own pass, builds at this floor.
+           DEPLOYMENT_TARGET=27.0
+          +if [ "$PLATFORM" != macos ]; then
+          +	DEPLOYMENT_TARGET=26.0
+          +fi
+           
+           # The software variant has no Vulkan driver, no Venus protocol and no render
+           # server; the other platforms render on KosmicKrisp.
+          diff --git a/dependencies/build-ios-network.sh b/dependencies/build-ios-network.sh
+          index 178937e1f..1cce53551 100755
+          --- a/dependencies/build-ios-network.sh
+          +++ b/dependencies/build-ios-network.sh
+          @@ -12,7 +12,7 @@ PREFIX=${UML_IOS_NETWORK_DEPENDENCY_PREFIX:-}
+           WORK_ROOT=${UML_IOS_NETWORK_DEPENDENCY_BUILD_ROOT:-"$ROOT_DIR/.build/dependency-build/ios-network"}
+           VERIFY_SCRIPT="$ROOT_DIR/dependencies/cmake/VerifyIosNetworkPrefix.cmake"
+           JOBS=${UML_IOS_NETWORK_DEPENDENCY_JOBS:-8}
+          -DEPLOYMENT_TARGET=27.0
+          +DEPLOYMENT_TARGET=26.0
+           PLATFORM=ios-simulator
+           VERIFY_ONLY=0
+           
+          diff --git a/dependencies/cmake/VerifyAppleGpuPrefix.cmake b/dependencies/cmake/VerifyAppleGpuPrefix.cmake
+          index 6b9d76a75..28bd3635b 100644
+          --- a/dependencies/cmake/VerifyAppleGpuPrefix.cmake
+          +++ b/dependencies/cmake/VerifyAppleGpuPrefix.cmake
+          @@ -31,6 +31,9 @@ else()
+               message(FATAL_ERROR "Unsupported Apple GPU platform: ${PLATFORM}")
+           endif()
+           set(_deployment_target 27.0)
+          +if(NOT PLATFORM STREQUAL "macos")
+          +    set(_deployment_target 26.0)
+          +endif()
+           if(PLATFORM STREQUAL "ios-simulator")
+               set(_software TRUE)
+           else()
+          diff --git a/dependencies/cmake/VerifyIosNetworkPrefix.cmake b/dependencies/cmake/VerifyIosNetworkPrefix.cmake
+          index e880d5b50..6c7641189 100644
+          --- a/dependencies/cmake/VerifyIosNetworkPrefix.cmake
+          +++ b/dependencies/cmake/VerifyIosNetworkPrefix.cmake
+          @@ -52,5 +52,5 @@ uml_verify_provenance_copy(
+           foreach(_archive IN ITEMS
+                   libpcre2-8.a libffi.a libintl.a libglib-2.0.a libslirp.a)
+               uml_verify_apple_binary(PATH "${PREFIX}/lib/${_archive}"
+          -        PLATFORM ${_mach_platform} MINOS 27.0)
+          +        PLATFORM ${_mach_platform} MINOS 26.0)
+           endforeach()
+          diff --git a/dependencies/cmake/VerifyIosStaticXCFramework.cmake b/dependencies/cmake/VerifyIosStaticXCFramework.cmake
+          index d0952f4ca..5798f5c90 100644
+          --- a/dependencies/cmake/VerifyIosStaticXCFramework.cmake
+          +++ b/dependencies/cmake/VerifyIosStaticXCFramework.cmake
+          @@ -64,7 +64,7 @@ function(uml_verify_ios_static_xcframework)
+                       set(_mach_platform 7)
+                   endif()
+                   uml_verify_apple_binary(PATH "${_archive}"
+          -            PLATFORM ${_mach_platform} MINOS 27.0)
+          +            PLATFORM ${_mach_platform} MINOS 26.0)
+           
+                   execute_process(
+                       COMMAND nm -g "${_archive}"
+          diff --git a/dependencies/ios-static-xcframework.sh b/dependencies/ios-static-xcframework.sh
+          index b3b0417bc..133e22879 100644
+          --- a/dependencies/ios-static-xcframework.sh
+          +++ b/dependencies/ios-static-xcframework.sh
+          @@ -13,7 +13,7 @@
+           # to fill.
+           
+           SOURCE_ROOT=${UML_DEPENDENCY_SOURCE_ROOT:-"$ROOT_DIR/external/sources"}
+          -DEPLOYMENT_TARGET=27.0
+          +DEPLOYMENT_TARGET=26.0
+           VERIFY_ONLY=0
+           
+           fail()
+          diff --git a/docs/architecture.md b/docs/architecture.md
+          index 58d333c63..c31d60759 100644
+          --- a/docs/architecture.md
+          +++ b/docs/architecture.md
+          @@ -236,9 +236,9 @@ translated by its engines, never loaded. Kernarium's app embeds every selectable
+           runtime framework, links none at launch, and loads exactly one guest flavour for
+           the process lifetime.
+           
+          -The macOS, iOS device, and iOS Simulator products build at a 27.0 minimum
+          -(`cmake/toolchains/Apple.cmake`), so their code carries no availability guard or
+          -fallback for an older release. Apple products consume accepted kernel bundles
+          +The macOS product builds at a 27.0 minimum; iOS device and Simulator products
+          +build at a 26.0 minimum (`cmake/toolchains/Apple.cmake`). APIs introduced
+          +after that floor are guarded at runtime with an iOS 26 implementation. Apple products consume accepted kernel bundles
+           and never invoke Kbuild: one mainline artifact for arm64 userspace on macOS and
+           the iOS device, a separately identified 4 KiB mainline slice for macOS x86_64
+           userspace, and a separate accepted 4 KiB `android-6.18` artifact (the same
+          diff --git a/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh b/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh
+          index ead93ec93..86c23b4bb 100755
+          --- a/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh
+          +++ b/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh
+          @@ -31,7 +31,7 @@ copy_fixture()
+           simulator_clang()
+           {
+           	xcrun --sdk iphonesimulator clang -arch arm64 \
+          -		-target arm64-apple-ios27.0-simulator "$@"
+          +		-target arm64-apple-ios26.0-simulator "$@"
+           }
+           
+           # make_framework PREFIX FRAMEWORK SOURCE [CLANG-ARGUMENT...]
+          @@ -53,7 +53,7 @@ make_framework()
+           <key>CFBundleExecutable</key><string>$framework</string>
+           <key>CFBundleIdentifier</key><string>org.linux-um-darwin.fixture.$framework</string>
+           <key>CFBundlePackageType</key><string>FMWK</string>
+          -<key>MinimumOSVersion</key><string>27.0</string>
+          +<key>MinimumOSVersion</key><string>26.0</string>
+           </dict></plist>
+           EOF
+           }
+          @@ -245,7 +245,7 @@ expect_cmake_diagnostic \
+           # A device-platform binary is not a Simulator binary.
+           CASE_PREFIX="$TEST_ROOT/device-binary"
+           copy_fixture "$CASE_PREFIX"
+          -xcrun --sdk iphoneos clang -arch arm64 -target arm64-apple-ios27.0 \
+          +xcrun --sdk iphoneos clang -arch arm64 -target arm64-apple-ios26.0 \
+           	-dynamiclib "$TEST_ROOT/gallium.c" \
+           	-Wl,-install_name,@rpath/MesaGallium.framework/MesaGallium \
+           	-o "$CASE_PREFIX/Frameworks/MesaGallium.framework/MesaGallium"
+          diff --git a/tests/tooling/dependencies/test_verify_ios_network_prefix.sh b/tests/tooling/dependencies/test_verify_ios_network_prefix.sh
+          index be337bfca..026fe5f89 100755
+          --- a/tests/tooling/dependencies/test_verify_ios_network_prefix.sh
+          +++ b/tests/tooling/dependencies/test_verify_ios_network_prefix.sh
+          @@ -38,9 +38,9 @@ make_prefix()
+           {
+           	prefix=$1
+           	case "$2" in
+          -	ios) sdk=iphoneos target=arm64-apple-ios27.0
+          +	ios) sdk=iphoneos target=arm64-apple-ios26.0
+           		receipt=ios-device-network-arm64.tsv ;;
+          -	ios-simulator) sdk=iphonesimulator target=arm64-apple-ios27.0-simulator
+          +	ios-simulator) sdk=iphonesimulator target=arm64-apple-ios26.0-simulator
+           		receipt=ios-simulator-network-arm64.tsv ;;
+           	esac
+           	mkdir -p "$prefix/lib/glib-2.0/include" "$prefix/include/glib-2.0" \
+          @@ -88,7 +88,7 @@ expect_cmake_diagnostic "Unsupported iOS network platform" \
+           expect_cmake_diagnostic "ios-device-network-arm64.tsv" \
+           	verify "$SIMULATOR" ios
+           
+          -# Every archive is an arm64 archive for the platform at iOS 27.0.
+          +# Every archive is an arm64 archive for the platform at iOS 26.0.
+           CASE="$TEST_ROOT/simulator-as-device"
+           cp -R "$SIMULATOR" "$CASE"
+           cp "$ROOT_DIR/dependencies/platforms/ios-device-network-arm64.tsv" \
+          @@ -102,7 +102,7 @@ expect_cmake_diagnostic "lib/libpcre2-8.a" verify "$CASE" ios-simulator
+           
+           CASE="$TEST_ROOT/simulator-member"
+           copy_fixture "$CASE"
+          -archive "$CASE/lib/libslirp.a" iphonesimulator arm64-apple-ios27.0-simulator
+          +archive "$CASE/lib/libslirp.a" iphonesimulator arm64-apple-ios26.0-simulator
+           expect_cmake_diagnostic "lib/libslirp.a" verify "$CASE" ios
+           
+           CASE="$TEST_ROOT/old-deployment-target"
+          @@ -110,17 +110,17 @@ copy_fixture "$CASE"
+           archive "$CASE/lib/libglib-2.0.a" iphoneos arm64-apple-ios18.0
+           expect_cmake_diagnostic "lib/libglib-2.0.a" verify "$CASE" ios
+           
+          -# The whole minimum OS version counts, so iOS 27.0.1 is not iOS 27.0.
+          +# The whole minimum OS version counts, so iOS 26.0.1 is not iOS 26.0.
+           CASE="$TEST_ROOT/patch-deployment-target"
+           copy_fixture "$CASE"
+          -archive "$CASE/lib/libglib-2.0.a" iphoneos arm64-apple-ios27.0.1
+          -expect_cmake_diagnostic "lib/libglib-2.0.a: minos 27.0.1" verify "$CASE" ios
+          +archive "$CASE/lib/libglib-2.0.a" iphoneos arm64-apple-ios26.0.1
+          +expect_cmake_diagnostic "lib/libglib-2.0.a: minos 26.0.1" verify "$CASE" ios
+           
+           # Every member counts, not only the first one that matches. A member built
+           # for iOS 11 carries a legacy minimum-version command instead of a
+           # build-version command.
+           for member in iphoneos:arm64-apple-ios18.0 \
+          -	iphonesimulator:arm64-apple-ios27.0-simulator \
+          +	iphonesimulator:arm64-apple-ios26.0-simulator \
+           	iphoneos:arm64-apple-ios11.0; do
+           	CASE="$TEST_ROOT/mixed-members-${member#*:}"
+           	copy_fixture "$CASE"
+          @@ -132,11 +132,11 @@ done
+           
+           # Every member carries exactly one build-version command. Each of these
+           # members, added beside a valid one, leaves every platform row in the archive
+          -# valid: a member without the command, a member with two iOS 27.0 commands,
+          +# valid: a member without the command, a member with two iOS 26.0 commands,
+           # and a bitcode member, which otool cannot read as Mach-O.
+           MEMBERS="$TEST_ROOT/members"
+           mkdir "$MEMBERS"
+          -xcrun --sdk iphoneos clang -target arm64-apple-ios27.0 \
+          +xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 \
+           	-c "$TEST_ROOT/fixture.c" -o "$MEMBERS/ios.o"
+           xcrun vtool -remove-build-version ios -output "$MEMBERS/no-build-version.o" \
+           	"$MEMBERS/ios.o"
+          @@ -171,7 +171,7 @@ EOF
+           [ "$(otool -l "$MEMBERS/two-build-versions.o" |
+           	grep -c 'cmd LC_BUILD_VERSION$')" -eq 2 ] ||
+           	fail "the fixture member lacks a second build-version command"
+          -xcrun --sdk iphoneos clang -target arm64-apple-ios27.0 -flto \
+          +xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 -flto \
+           	-c "$TEST_ROOT/fixture.c" -o "$MEMBERS/bitcode.o"
+           for member in no-build-version two-build-versions bitcode; do
+           	CASE="$TEST_ROOT/member-$member"
+          @@ -182,12 +182,12 @@ done
+           
+           CASE="$TEST_ROOT/intel-archive"
+           copy_fixture "$CASE"
+          -archive "$CASE/lib/libffi.a" iphonesimulator x86_64-apple-ios27.0-simulator
+          +archive "$CASE/lib/libffi.a" iphonesimulator x86_64-apple-ios26.0-simulator
+           expect_cmake_diagnostic "lib/libffi.a" verify "$CASE" ios
+           
+           CASE="$TEST_ROOT/universal-archive"
+           copy_fixture "$CASE"
+          -archive "$TEST_ROOT/intel.a" iphonesimulator x86_64-apple-ios27.0-simulator
+          +archive "$TEST_ROOT/intel.a" iphonesimulator x86_64-apple-ios26.0-simulator
+           xcrun lipo -create "$DEVICE/lib/libintl.a" "$TEST_ROOT/intel.a" \
+           	-output "$CASE/lib/libintl.a"
+           expect_cmake_diagnostic "lib/libintl.a" verify "$CASE" ios
+          diff --git a/tests/tooling/dependencies/test_verify_ios_static_xcframework.sh b/tests/tooling/dependencies/test_verify_ios_static_xcframework.sh
+          index ea813f9b8..70c018268 100755
+          --- a/tests/tooling/dependencies/test_verify_ios_static_xcframework.sh
+          +++ b/tests/tooling/dependencies/test_verify_ios_static_xcframework.sh
+          @@ -27,9 +27,9 @@ verify_zstd()
+           slice_binary()
+           {
+           	case "$2" in
+          -	ios-arm64) sdk=iphoneos target=arm64-apple-ios27.0 ;;
+          +	ios-arm64) sdk=iphoneos target=arm64-apple-ios26.0 ;;
+           	ios-arm64-simulator) sdk=iphonesimulator
+          -		target=arm64-apple-ios27.0-simulator ;;
+          +		target=arm64-apple-ios26.0-simulator ;;
+           	esac
+           	target=${4:-$target}
+           	object="$TEST_ROOT/object-$$.o"
+          @@ -115,7 +115,7 @@ verify_zstd "$ZSTD" >/dev/null || fail "a valid zstd prefix was rejected"
+           DEVICE_GPTFDISK="GPTFDisk.xcframework/ios-arm64/GPTFDisk.framework"
+           SIMULATOR_GPTFDISK="GPTFDisk.xcframework/ios-arm64-simulator/GPTFDisk.framework"
+           
+          -# Each slice is an arm64 archive for its platform at iOS 27.0.
+          +# Each slice is an arm64 archive for its platform at iOS 26.0.
+           CASE="$TEST_ROOT/simulator-in-device-slice"
+           copy_fixture "$STORAGE" "$CASE"
+           cp "$STORAGE/$SIMULATOR_GPTFDISK/GPTFDisk" "$CASE/$DEVICE_GPTFDISK/GPTFDisk"
+          @@ -135,7 +135,7 @@ expect_cmake_diagnostic "$DEVICE_GPTFDISK/GPTFDisk" verify_storage "$CASE"
+           CASE="$TEST_ROOT/intel-slice"
+           copy_fixture "$STORAGE" "$CASE"
+           slice_binary "$CASE/$SIMULATOR_GPTFDISK/GPTFDisk" ios-arm64-simulator \
+          -	"$TEST_ROOT/gptfdisk.c" x86_64-apple-ios27.0-simulator
+          +	"$TEST_ROOT/gptfdisk.c" x86_64-apple-ios26.0-simulator
+           expect_cmake_diagnostic "$SIMULATOR_GPTFDISK/GPTFDisk" verify_storage "$CASE"
+           
+           # Each slice exports its symbol contract and nothing forbidden.
+          BACKPORT
+          git apply --check "$RUNNER_TEMP/ios26.patch"
+          git apply "$RUNNER_TEMP/ios26.patch"
+          git diff --check
+          xcrun xcprojformatter --update Andarium/Andarium.xcodeproj
+          mkdir -p deliverables
+          git diff --binary > deliverables/ios26-source.patch
+          tar --exclude=.git --exclude=.build --exclude=external --exclude=deliverables -czf "$RUNNER_TEMP/Andarium-ios26-source.tar.gz" .
+          mv "$RUNNER_TEMP/Andarium-ios26-source.tar.gz" deliverables/
+      - name: Check toolchain and prepare build tools
+        run: |
+          test "$(uname -m)" = arm64
+          git config --global user.name "$(git log -1 --format=%an)"
+          git config --global user.email "$(git log -1 --format=%ae)"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          brew install cmake ninja autoconf automake libtool gettext gperf groff pkgconf make rsync
+          python3 -m venv .build/gpu-tools-venv
+          .build/gpu-tools-venv/bin/pip install meson mako pyyaml packaging
+          echo "$PWD/.build/gpu-tools-venv/bin" >> "$GITHUB_PATH"
+          xcodebuild -downloadComponent MetalToolchain
+      - name: Test the Swift models
+        run: |
+          swift test --package-path GuestHost/Core
+          swift test --package-path Andarium/AndariumCore
+      - name: Download and verify accepted kernel and Android image
+        run: |
+          mkdir -p "$RUNNER_TEMP/andarium-assets" .build/kernel/artifacts
+          curl -fL --retry 3 --max-time 900 'https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz' -o "$RUNNER_TEMP/andarium-assets/kernel.tar.gz"
+          curl -fL --retry 3 --max-time 1800 'https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/lineage24-mainline6.18-4k-20261110-los24-r22.tar.gz' -o "$RUNNER_TEMP/andarium-assets/system.tar.gz"
+          (cd "$RUNNER_TEMP/andarium-assets" && printf '%s\n' '79fc3acb85a347736fb27192c3a1c26ccfc21ba8ffbcc1a256f53b274b79856b  kernel.tar.gz' '0ba8a67798d79260221349cb9b749dd1bdfc1b679a55428fa1f6d12cd54c3aa2  system.tar.gz' | shasum -a 256 -c -)
+          tar -xzf "$RUNNER_TEMP/andarium-assets/kernel.tar.gz" -C .build/kernel/artifacts
+          tar -xzf "$RUNNER_TEMP/andarium-assets/system.tar.gz" -C "$RUNNER_TEMP/andarium-assets"
+          python3 android/lineage-24/tools/install-release.py --source "$RUNNER_TEMP/andarium-assets/lineage24-mainline6.18-4k-20261110-los24-r22"
+          python3 Andarium/scripts/stage-system-image.py
+      - name: Prepare verified native dependency sources
+        run: |
+          for product in ios-compression ios-storage ios-network apple-gpu-vulkan-experiment; do
+            dependencies/prepare.sh --product "$product"
+          done
+      - name: Build libraries with an iOS 26 deployment target
+        run: |
+          dependencies/build-ios-zstd.sh
+          dependencies/build-ios-storage.sh
+          dependencies/build-ios-network.sh --platform ios
+          dependencies/build-apple-gpu.sh --platform ios --jobs 3
+      - name: Build and package the Android runtime
+        run: |
+          cmake --preset kernarium-ios-device-android
+          cmake --build --preset kernarium-ios-device-android
+          Kernarium/scripts/package-ios-frameworks.sh --sdk device --runtimes android
+      - name: Check audio interruption and microphone recovery
+        run: |
+          python3 tests/integration/audio/run_ios_interruption.py --sink-directory "$PWD/darwin/device/audio" --include-directory "$PWD/darwin" --deployment-target 27.0
+      - name: Build unsigned release for sideloading
+        run: |
+          xcodebuild -project Andarium/Andarium.xcodeproj -scheme Andarium -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/Andarium-build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CURRENT_PROJECT_VERSION="$((${GITHUB_RUN_NUMBER} + 1000))" build
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$RUNNER_TEMP/Andarium-build/Build/Products/Release-iphoneos/Andarium.app" "$RUNNER_TEMP/ipa/Payload/Andarium.app"
+          python3 - "$RUNNER_TEMP/ipa/Payload/Andarium.app" <<'PY'
+          import pathlib, plistlib, subprocess, sys
+          app = pathlib.Path(sys.argv[1])
+          for path in app.rglob('Info.plist'):
+              info = plistlib.loads(path.read_bytes())
+              floor = info.get('MinimumOSVersion')
+              if floor and tuple(map(int, floor.split('.'))) > (26, 7):
+                  raise SystemExit(f'{path}: minimum OS is {floor}')
+          checked = 0
+          for path in app.rglob('*'):
+              if not path.is_file():
+                  continue
+              with path.open('rb') as handle:
+                  magic = handle.read(4)
+              if magic not in (b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf'):
+                  continue
+              output = subprocess.check_output(['xcrun', 'vtool', '-show-build', str(path)], text=True)
+              for line in output.splitlines():
+                  words = line.split()
+                  if words and words[0] == 'minos' and tuple(map(int, words[1].split('.'))) > (26, 7):
+                      raise SystemExit(f'{path}: binary minimum OS exceeds 26.7')
+              checked += 1
+          if checked == 0:
+              raise SystemExit('No arm64 binaries were verified')
+          print(f'Verified {checked} arm64 binaries for iOS 26.7 or earlier')
+          PY
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/deliverables/Andarium-ios26-unsigned.ipa" Payload)
+          shasum -a 256 deliverables/Andarium-ios26-unsigned.ipa > deliverables/SHA256SUMS.txt
+          cp Andarium/Config/Andarium.entitlements deliverables/Required-entitlements.plist
+      - name: Upload IPA and corresponding source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Andarium-iOS26-build-${{ github.run_number }}
+          path: deliverables/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
