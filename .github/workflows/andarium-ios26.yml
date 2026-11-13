@@ -15,6 +15,7 @@ jobs:
       run:
         shell: bash
     env:
+      PYTHONUNBUFFERED: 1
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
       HOMEBREW_NO_AUTO_UPDATE: 1
       CMAKE_BUILD_PARALLEL_LEVEL: 3
@@ -912,6 +913,52 @@ jobs:
                                }];
            }
           +#pragma clang diagnostic pop
+          diff --git a/tests/integration/audio/run_ios_interruption.py b/tests/integration/audio/run_ios_interruption.py
+          index 81e9a5ba6..00a32bf6b 100755
+          --- a/tests/integration/audio/run_ios_interruption.py
+          +++ b/tests/integration/audio/run_ios_interruption.py
+          @@ -239,6 +239,7 @@ def main() -> int:
+                       # The tests build while the device finishes booting.
+                       binaries = {}
+                       for name, sources in tests.items():
+          +                print(f"Building {name} for the iOS Simulator", flush=True)
+                           binary = pathlib.Path(scratch) / name
+                           compile_command = [
+                               "xcrun", "--sdk", "iphonesimulator", "clang++",
+          @@ -266,19 +267,27 @@ def main() -> int:
+                               return 1
+                           binaries[name] = binary
+           
+          +            print("Waiting for the iOS Simulator to finish booting", flush=True)
+                       ready = simctl("bootstatus", udid, timeout=deadline.bound(BOOT_TIMEOUT_SECONDS))
+                       if ready.returncode != 0:
+                           print(f"FAIL: waiting for the simulator to boot: {ready.stderr.strip()}")
+                           return 1
+                       if shut_down_after:
+          +                print("Waiting for simulator background CPU activity to settle", flush=True)
+                           settle(udid, deadline)
+                       for name, binary in binaries.items():
+          -                result = simctl(
+          -                    "spawn", udid, str(binary), timeout=deadline.bound(RUN_TIMEOUT_SECONDS)
+          -                )
+          -                print(f"== {name}")
+          -                sys.stdout.write(result.stdout)
+          -                sys.stderr.write(result.stderr)
+          +                print(f"== {name}", flush=True)
+          +                try:
+          +                    result = subprocess.run(
+          +                        ["xcrun", "simctl", "spawn", udid, str(binary)],
+          +                        check=False,
+          +                        stdin=subprocess.DEVNULL,
+          +                        timeout=deadline.bound(RUN_TIMEOUT_SECONDS),
+          +                    )
+          +                except subprocess.TimeoutExpired:
+          +                    print(f"FAIL: {name} timed out", flush=True)
+          +                    status = 1
+          +                    break
+                           status = status or (0 if result.returncode == 0 else 1)
+                   except TimeoutError as error:
+                       print(f"FAIL: {error}")
           diff --git a/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh b/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh
           index ead93ec93..86c23b4bb 100755
           --- a/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh
