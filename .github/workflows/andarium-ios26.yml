@@ -470,6 +470,24 @@ jobs:
                id __strong deactivationObserver_;
                id __strong resumptionObserver_;
                // The system has the session, and no end has come yet.
+          diff --git a/darwin/platform/apple/video_decoder.mm b/darwin/platform/apple/video_decoder.mm
+          index 7cab314f7..fba3d97c3 100644
+          --- a/darwin/platform/apple/video_decoder.mm
+          +++ b/darwin/platform/apple/video_decoder.mm
+          @@ -106,8 +106,11 @@ bool high10Available()
+           bool vp9Available()
+           {
+               static const bool available = [] {
+          -        VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9);
+          -        return bool(VTIsHardwareDecodeSupported(kCMVideoCodecType_VP9));
+          +        if (@available(macOS 11.0, iOS 26.2, *)) {
+          +            VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9);
+          +            return bool(VTIsHardwareDecodeSupported(kCMVideoCodecType_VP9));
+          +        }
+          +        return false;
+               }();
+               return available;
+           }
           diff --git a/dependencies/README.md b/dependencies/README.md
           index 158e46919..4a871378c 100644
           --- a/dependencies/README.md
@@ -764,6 +782,7 @@ jobs:
           tar --exclude=.git --exclude=.build --exclude=external --exclude=deliverables -czf "$RUNNER_TEMP/Andarium-ios26-source.tar.gz" .
           mv "$RUNNER_TEMP/Andarium-ios26-source.tar.gz" deliverables/
       - name: Check toolchain and prepare build tools
+        id: toolchain
         run: |
           test "$(uname -m)" = arm64
           git config --global user.name "$(git log -1 --format=%an)"
@@ -775,6 +794,12 @@ jobs:
           .build/gpu-tools-venv/bin/pip install meson mako pyyaml packaging
           echo "$PWD/.build/gpu-tools-venv/bin" >> "$GITHUB_PATH"
           xcodebuild -downloadComponent MetalToolchain
+          echo "fingerprint=$({ xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version; xcrun clang --version; } | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Check video API availability before building dependencies
+        run: |
+          for source in darwin/platform/apple/video_decoder.mm darwin/platform/apple/video_encoder.mm darwin/platform/apple/video_encoder_discovery.mm; do
+            xcrun --sdk iphoneos clang++ -target arm64-apple-ios26.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -std=c++20 -fobjc-arc -Wall -Wextra -Werror -I darwin/platform -fsyntax-only "$source"
+          done
       - name: Test the Swift models
         run: |
           swift test --package-path GuestHost/Core
@@ -789,6 +814,15 @@ jobs:
           tar -xzf "$RUNNER_TEMP/andarium-assets/system.tar.gz" -C "$RUNNER_TEMP/andarium-assets"
           python3 android/lineage-24/tools/install-release.py --source "$RUNNER_TEMP/andarium-assets/lineage24-mainline6.18-4k-20261110-los24-r22"
           python3 Andarium/scripts/stage-system-image.py
+      - name: Restore verified native dependency cache
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .build/dependencies
+            .build/dependency-cache
+            external/sources
+          key: ios26-native-v1-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('dependencies/**', 'tools/rootfs/vulkan/metadata/**', 'cmake/toolchains/Apple.cmake', 'scripts/patch_series.py') }}
       - name: Prepare verified native dependency sources
         run: |
           for product in ios-compression ios-storage ios-network apple-gpu-vulkan-experiment; do
@@ -800,6 +834,15 @@ jobs:
           dependencies/build-ios-storage.sh
           dependencies/build-ios-network.sh --platform ios
           dependencies/build-apple-gpu.sh --platform ios --jobs 3
+      - name: Save verified native dependencies before compiling the runtime
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .build/dependencies
+            .build/dependency-cache
+            external/sources
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Build and package the Android runtime
         run: |
           cmake --preset kernarium-ios-device-android
