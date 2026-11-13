@@ -1154,9 +1154,46 @@ jobs:
         run: |
           swift test --package-path GuestHost/Core
           swift test --package-path Andarium/AndariumCore
-      - name: Check audio interruption and microphone recovery
+      # Boot the simulator in its own step, so that the test runner does not compile
+      # its tests while the device is still booting and starving the runner's CPU.
+      - name: Boot a simulator for the audio tests
+        id: audio-simulator
+        timeout-minutes: 15
         run: |
-          python3 tests/integration/audio/run_ios_interruption.py --sink-directory "$PWD/darwin/device/audio" --include-directory "$PWD/darwin" --deployment-target 26.0
+          python3 - <<'BOOT'
+          import os, subprocess, sys
+          sys.path.insert(0, "tests/integration/audio")
+          import run_ios_interruption as runner
+          chosen = runner.pick_runtime((26, 0))
+          if chosen is None:
+              print("no iOS Simulator runtime at iOS 26.0 or later; the audio tests will skip")
+              sys.exit(0)
+          runtime, device_type = chosen
+          udid = subprocess.run(
+              ["xcrun", "simctl", "create", f"uml-audio-interruption-{os.getpid()}", device_type, runtime],
+              check=True, capture_output=True, text=True, timeout=120,
+          ).stdout.strip()
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"udid={udid}\n")
+          print(f"simulator {udid}: {device_type} on {runtime}", flush=True)
+          subprocess.run(["xcrun", "simctl", "boot", udid], check=True, timeout=300)
+          subprocess.run(["xcrun", "simctl", "bootstatus", udid], check=True, timeout=600)
+          runner.settle(udid, runner.Deadline(400))
+          BOOT
+      - name: Check audio interruption and microphone recovery
+        env:
+          AUDIO_SIMULATOR: ${{ steps.audio-simulator.outputs.udid }}
+        run: |
+          python3 tests/integration/audio/run_ios_interruption.py --sink-directory "$PWD/darwin/device/audio" --include-directory "$PWD/darwin" --deployment-target 26.0 ${AUDIO_SIMULATOR:+--device "$AUDIO_SIMULATOR"}
+      - name: Delete the audio test simulator
+        if: always() && steps.audio-simulator.outputs.udid != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          AUDIO_SIMULATOR: ${{ steps.audio-simulator.outputs.udid }}
+        run: |
+          xcrun simctl shutdown "$AUDIO_SIMULATOR" || true
+          xcrun simctl delete "$AUDIO_SIMULATOR"
       - name: Download and verify accepted kernel and Android image
         run: |
           mkdir -p "$RUNNER_TEMP/andarium-assets" .build/kernel/artifacts
