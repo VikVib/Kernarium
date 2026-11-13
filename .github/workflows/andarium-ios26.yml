@@ -66,16 +66,15 @@ jobs:
                    .library(name: "AndariumCore", targets: ["AndariumCore"]),
                ],
           diff --git a/Andarium/README.md b/Andarium/README.md
-          index aa31f01c6..1a47e7156 100644
+          index aa31f01c6..eb32bedd4 100644
           --- a/Andarium/README.md
           +++ b/Andarium/README.md
-          @@ -56,6 +56,10 @@ xcodebuild -project Andarium/Andarium.xcodeproj -scheme AndariumPreview \
+          @@ -56,6 +56,9 @@ xcodebuild -project Andarium/Andarium.xcodeproj -scheme AndariumPreview \
            
            ## Devices
            
           +The iOS device and Simulator builds support iOS 26.0 and later. Audio uses
-          +the legacy interruption notification on iOS 26 and the session context
-          +notifications on iOS 27 and later.
+          +the iOS 26 playback, capture and interruption APIs.
           +
            The guest is drawn with Metal 4, which the A14 and later chips have. No
            capability key names the chip, so `UIRequiredDeviceCapabilities` names `metal`
@@ -203,10 +202,39 @@ jobs:
                message(FATAL_ERROR "Unknown UML_APPLE_PLATFORM=${UML_APPLE_PLATFORM}")
            endif()
           diff --git a/darwin/device/audio/apple_microphone_input.mm b/darwin/device/audio/apple_microphone_input.mm
-          index 51833329b..0dd740f1d 100644
+          index 51833329b..6eb8d32e5 100644
           --- a/darwin/device/audio/apple_microphone_input.mm
           +++ b/darwin/device/audio/apple_microphone_input.mm
-          @@ -227,48 +227,78 @@ public:
+          @@ -127,13 +127,13 @@ private:
+                       CaptureRing* destination = ring;
+                       const std::uint32_t frameBytes =
+                           channels * protocol::bytesPerSample;
+          -            NSError* tapError = nil;
+          -            const BOOL tapped = [input
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +            [input
+                           installTapOnBus:0
+                                bufferSize:static_cast<AVAudioFrameCount>(
+                                               inputFormat.sampleRate * tapSeconds)
+                                    format:inputFormat
+          -                          error:&tapError
+                                     block:^(AVAudioPCMBuffer* buffer, AVAudioTime*) {
+                                          __block BOOL supplied = NO;
+                                          converted.frameLength = 0;
+          @@ -165,10 +165,7 @@ private:
+                                                      frameBytes));
+                                          }
+                                        }];
+          -            if (!tapped) {
+          -                closeSession();
+          -                return false;
+          -            }
+          +#pragma clang diagnostic pop
+                       [created prepare];
+                       NSError* startError = nil;
+                       if (![created startAndReturnError:&startError]) {
+          @@ -227,48 +224,37 @@ public:
                {
            #if TARGET_OS_IPHONE
                    const std::weak_ptr<Capture> weak = capture_;
@@ -218,12 +246,18 @@ jobs:
           -         * interruption context. */
           -        deactivationObserver_ = [NSNotificationCenter.defaultCenter
           -            addObserverForName:AVAudioSessionDidBecomeInactiveNotification
-          -                        object:[AVAudioSession sharedInstance]
-          -                         queue:nil
-          -                    usingBlock:^(NSNotification* notification) {
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +        interruptionObserver_ = [NSNotificationCenter.defaultCenter
+          +            addObserverForName:AVAudioSessionInterruptionNotification
+                                   object:[AVAudioSession sharedInstance]
+                                    queue:nil
+                               usingBlock:^(NSNotification* notification) {
           -                      const auto capture = weak.lock();
           -                      if (!capture)
-          -                          return;
+          +                      NSNumber* type = notification.userInfo[AVAudioSessionInterruptionTypeKey];
+          +                      if (type == nil)
+                                     return;
           -                      const AVAudioSessionDeactivationContext* context =
           -                          notification.userInfo
           -                              [AVAudioSessionDeactivationContextKey];
@@ -235,75 +269,24 @@ jobs:
           -                        object:[AVAudioSession sharedInstance]
           -                         queue:nil
           -                    usingBlock:^(NSNotification* notification) {
-          -                      const auto capture = weak.lock();
-          -                      if (!capture)
-          -                          return;
+          +                      const bool began = type.unsignedIntegerValue == AVAudioSessionInterruptionTypeBegan;
+          +                      NSNumber* options = notification.userInfo[AVAudioSessionInterruptionOptionKey];
+          +                      const bool shouldResume = (options.unsignedIntegerValue &
+          +                          AVAudioSessionInterruptionOptionShouldResume) != 0;
+                                 const auto capture = weak.lock();
+                                 if (!capture)
+                                     return;
           -                      const AVAudioSessionResumptionContext* context =
           -                          notification.userInfo
           -                              [AVAudioSessionResumptionContextKey];
           -                      capture->resume(context.recommendation ==
           -                          AVAudioSessionResumptionRecommendationShouldResume);
-          -                    }];
-          +        if (@available(iOS 27.0, *)) {
-          +            /* iOS 27 replaces the interruption notification with two, which the
-          +             * playback sink observes too: the session becoming inactive, which
-          +             * also reports the app's own deactivations (its release of the
-          +             * session when the microphone stops), and the system's resumption
-          +             * recommendation. An interruption is a deactivation that carries an
-          +             * interruption context. */
-          +            deactivationObserver_ = [NSNotificationCenter.defaultCenter
-          +                addObserverForName:AVAudioSessionDidBecomeInactiveNotification
-          +                            object:[AVAudioSession sharedInstance]
-          +                             queue:nil
-          +                        usingBlock:^(NSNotification* notification) {
-          +                          const auto capture = weak.lock();
-          +                          if (!capture)
-          +                              return;
-          +                          const AVAudioSessionDeactivationContext* context =
-          +                              notification.userInfo
-          +                                  [AVAudioSessionDeactivationContextKey];
-          +                          if (context.interruptionContext != nil)
-          +                              capture->interrupt();
-          +                        }];
-          +            resumptionObserver_ = [NSNotificationCenter.defaultCenter
-          +                addObserverForName:AVAudioSessionResumptionRecommendationNotification
-          +                            object:[AVAudioSession sharedInstance]
-          +                             queue:nil
-          +                        usingBlock:^(NSNotification* notification) {
-          +                          const auto capture = weak.lock();
-          +                          if (!capture)
-          +                              return;
-          +                          const AVAudioSessionResumptionContext* context =
-          +                              notification.userInfo
-          +                                  [AVAudioSessionResumptionContextKey];
-          +                          capture->resume(context.recommendation ==
-          +                              AVAudioSessionResumptionRecommendationShouldResume);
-          +                        }];
-          +        } else {
-          +#pragma clang diagnostic push
-          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-          +            legacyInterruptionObserver_ = [NSNotificationCenter.defaultCenter
-          +                addObserverForName:AVAudioSessionInterruptionNotification
-          +                            object:[AVAudioSession sharedInstance]
-          +                             queue:nil
-          +                        usingBlock:^(NSNotification* notification) {
-          +                          NSNumber* type = notification.userInfo[AVAudioSessionInterruptionTypeKey];
-          +                          if (type == nil)
-          +                              return;
-          +                          const bool began = type.unsignedIntegerValue == AVAudioSessionInterruptionTypeBegan;
-          +                          NSNumber* options = notification.userInfo[AVAudioSessionInterruptionOptionKey];
-          +                          const bool shouldResume = (options.unsignedIntegerValue &
-          +                              AVAudioSessionInterruptionOptionShouldResume) != 0;
-          +                          const auto capture = weak.lock();
-          +                          if (!capture)
-          +                              return;
-          +                          if (began)
-          +                              capture->interrupt();
-          +                          else
-          +                              capture->resume(shouldResume);
-          +                        }];
+          +                      if (began)
+          +                          capture->interrupt();
+          +                      else
+          +                          capture->resume(shouldResume);
+                               }];
           +#pragma clang diagnostic pop
-          +        }
            #endif
                }
            
@@ -312,28 +295,44 @@ jobs:
            #if TARGET_OS_IPHONE
           -        [NSNotificationCenter.defaultCenter removeObserver:deactivationObserver_];
           -        [NSNotificationCenter.defaultCenter removeObserver:resumptionObserver_];
-          +        if (deactivationObserver_ != nil)
-          +            [NSNotificationCenter.defaultCenter removeObserver:deactivationObserver_];
-          +        if (resumptionObserver_ != nil)
-          +            [NSNotificationCenter.defaultCenter removeObserver:resumptionObserver_];
-          +        if (legacyInterruptionObserver_ != nil)
-          +            [NSNotificationCenter.defaultCenter removeObserver:legacyInterruptionObserver_];
+          +        if (interruptionObserver_ != nil)
+          +            [NSNotificationCenter.defaultCenter removeObserver:interruptionObserver_];
            #endif
                    capture_->stop();
                }
-          @@ -285,6 +315,7 @@ public:
+          @@ -285,8 +271,7 @@ public:
            private:
                std::shared_ptr<Capture> capture_;
            #if TARGET_OS_IPHONE
-          +    id __strong legacyInterruptionObserver_;
-               id __strong deactivationObserver_;
-               id __strong resumptionObserver_;
+          -    id __strong deactivationObserver_;
+          -    id __strong resumptionObserver_;
+          +    id __strong interruptionObserver_;
            #endif
+           };
+           
           diff --git a/darwin/device/audio/apple_playback_sink.mm b/darwin/device/audio/apple_playback_sink.mm
-          index 4158b0be1..35e62f562 100644
+          index 4158b0be1..6d4775905 100644
           --- a/darwin/device/audio/apple_playback_sink.mm
           +++ b/darwin/device/audio/apple_playback_sink.mm
-          @@ -199,44 +199,73 @@ public:
+          @@ -33,6 +33,17 @@
+           namespace uml::audio {
+           namespace {
+           
+          +// The iOS 26 entry point throws on an invalid engine state. Callers already
+          +// catch those exceptions and apply the same stream recovery as a failed start.
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +bool startPlayer(AVAudioPlayerNode* player)
+          +{
+          +    [player play];
+          +    return player.isPlaying;
+          +}
+          +#pragma clang diagnostic pop
+          +
+           struct NotificationFlags final {
+               explicit NotificationFlags(std::shared_ptr<const Waker> source)
+                   : wake(std::move(source))
+          @@ -199,44 +210,32 @@ public:
                                  if (const auto flags = weakNotifications.lock())
                                      flags->signal(flags->configurationChanged);
                                }];
@@ -345,12 +344,18 @@ jobs:
           -         * session back at once depends on its advice (see endInterruption). */
           -        deactivationObserver_ = [[NSNotificationCenter defaultCenter]
           -            addObserverForName:AVAudioSessionDidBecomeInactiveNotification
-          -                        object:[AVAudioSession sharedInstance]
-          -                         queue:nil
-          -                    usingBlock:^(NSNotification* notification) {
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +        interruptionObserver_ = [NSNotificationCenter.defaultCenter
+          +            addObserverForName:AVAudioSessionInterruptionNotification
+                                   object:[AVAudioSession sharedInstance]
+                                    queue:nil
+                               usingBlock:^(NSNotification* notification) {
           -                      const auto flags = weakNotifications.lock();
           -                      if (!flags)
-          -                          return;
+          +                      NSNumber* type = notification.userInfo[AVAudioSessionInterruptionTypeKey];
+          +                      if (type == nil)
+                                     return;
           -                      const AVAudioSessionDeactivationContext* context =
           -                          notification.userInfo[
           -                              AVAudioSessionDeactivationContextKey];
@@ -362,9 +367,13 @@ jobs:
           -                        object:[AVAudioSession sharedInstance]
           -                         queue:nil
           -                    usingBlock:^(NSNotification* notification) {
-          -                      const auto flags = weakNotifications.lock();
-          -                      if (!flags)
-          -                          return;
+          +                      const bool began = type.unsignedIntegerValue == AVAudioSessionInterruptionTypeBegan;
+          +                      NSNumber* options = notification.userInfo[AVAudioSessionInterruptionOptionKey];
+          +                      const bool shouldResume = (options.unsignedIntegerValue &
+          +                          AVAudioSessionInterruptionOptionShouldResume) != 0;
+                                 const auto flags = weakNotifications.lock();
+                                 if (!flags)
+                                     return;
           -                      const AVAudioSessionResumptionContext* context =
           -                          notification.userInfo[
           -                              AVAudioSessionResumptionContextKey];
@@ -372,80 +381,20 @@ jobs:
           -                          AVAudioSessionResumptionRecommendationShouldResume) {
           -                          flags->resumeRecommended.store(
           -                              true, std::memory_order_release);
-          -                      }
-          -                      flags->signal(flags->interruptionEnded);
-          -                    }];
-          +        if (@available(iOS 27.0, *)) {
-          +            /* iOS 27 replaces the interruption notification with two: the session
-          +             * becoming inactive, which also reports the app's own deactivations,
-          +             * and the system's resumption recommendation. An interruption is a
-          +             * deactivation that carries an interruption context. Every
-          +             * recommendation ends the interruption; whether the sink takes the
-          +             * session back at once depends on its advice (see endInterruption). */
-          +            deactivationObserver_ = [[NSNotificationCenter defaultCenter]
-          +                addObserverForName:AVAudioSessionDidBecomeInactiveNotification
-          +                            object:[AVAudioSession sharedInstance]
-          +                             queue:nil
-          +                        usingBlock:^(NSNotification* notification) {
-          +                          const auto flags = weakNotifications.lock();
-          +                          if (!flags)
-          +                              return;
-          +                          const AVAudioSessionDeactivationContext* context =
-          +                              notification.userInfo[
-          +                                  AVAudioSessionDeactivationContextKey];
-          +                          if (context.interruptionContext != nil)
-          +                              flags->signal(flags->interruptionBegan);
-          +                        }];
-          +            resumptionObserver_ = [[NSNotificationCenter defaultCenter]
-          +                addObserverForName:AVAudioSessionResumptionRecommendationNotification
-          +                            object:[AVAudioSession sharedInstance]
-          +                             queue:nil
-          +                        usingBlock:^(NSNotification* notification) {
-          +                          const auto flags = weakNotifications.lock();
-          +                          if (!flags)
-          +                              return;
-          +                          const AVAudioSessionResumptionContext* context =
-          +                              notification.userInfo[
-          +                                  AVAudioSessionResumptionContextKey];
-          +                          if (context.recommendation ==
-          +                              AVAudioSessionResumptionRecommendationShouldResume) {
-          +                              flags->resumeRecommended.store(
-          +                                  true, std::memory_order_release);
-          +                          }
+          +                      if (began) {
+          +                          flags->signal(flags->interruptionBegan);
+          +                      } else {
+          +                          if (shouldResume)
+          +                              flags->resumeRecommended.store(true, std::memory_order_release);
           +                          flags->signal(flags->interruptionEnded);
-          +                        }];
-          +        } else {
-          +#pragma clang diagnostic push
-          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-          +            legacyInterruptionObserver_ = [NSNotificationCenter.defaultCenter
-          +                addObserverForName:AVAudioSessionInterruptionNotification
-          +                            object:[AVAudioSession sharedInstance]
-          +                             queue:nil
-          +                        usingBlock:^(NSNotification* notification) {
-          +                          NSNumber* type = notification.userInfo[AVAudioSessionInterruptionTypeKey];
-          +                          if (type == nil)
-          +                              return;
-          +                          const bool began = type.unsignedIntegerValue == AVAudioSessionInterruptionTypeBegan;
-          +                          NSNumber* options = notification.userInfo[AVAudioSessionInterruptionOptionKey];
-          +                          const bool shouldResume = (options.unsignedIntegerValue &
-          +                              AVAudioSessionInterruptionOptionShouldResume) != 0;
-          +                          const auto flags = weakNotifications.lock();
-          +                          if (!flags)
-          +                              return;
-          +                          if (began) {
-          +                              flags->signal(flags->interruptionBegan);
-          +                          } else {
-          +                              if (shouldResume)
-          +                                  flags->resumeRecommended.store(true, std::memory_order_release);
-          +                              flags->signal(flags->interruptionEnded);
-          +                          }
-          +                        }];
+                                 }
+          -                      flags->signal(flags->interruptionEnded);
+                               }];
           +#pragma clang diagnostic pop
-          +        }
            #endif
                }
            
-          @@ -247,10 +276,12 @@ public:
+          @@ -247,10 +246,8 @@ public:
                            removeObserver:configurationObserver_];
            #if TARGET_OS_IPHONE
                        [[NSNotificationCenter defaultCenter] removeObserver:routeObserver_];
@@ -453,23 +402,79 @@ jobs:
           -                removeObserver:deactivationObserver_];
           -            [[NSNotificationCenter defaultCenter]
           -                removeObserver:resumptionObserver_];
-          +            if (deactivationObserver_ != nil)
-          +                [NSNotificationCenter.defaultCenter removeObserver:deactivationObserver_];
-          +            if (resumptionObserver_ != nil)
-          +                [NSNotificationCenter.defaultCenter removeObserver:resumptionObserver_];
-          +            if (legacyInterruptionObserver_ != nil)
-          +                [NSNotificationCenter.defaultCenter removeObserver:legacyInterruptionObserver_];
+          +            if (interruptionObserver_ != nil)
+          +                [NSNotificationCenter.defaultCenter removeObserver:interruptionObserver_];
            #endif
                    } @catch (NSException*) {
                    }
-          @@ -1270,6 +1301,7 @@ private:
+          @@ -315,17 +312,10 @@ public:
+                               return false;
+                       }
+                       [engine_ disconnectNodeOutput:player_];
+          -            NSError* connectError = nil;
+          -            if (![engine_ connect:player_
+          -                               to:engine_.mainMixerNode
+          -                           format:format_
+          -                            error:&connectError]) {
+          -                configured_ = false;
+          -                prepared_ = false;
+          -                running_ = false;
+          -                fault("the engine would not connect");
+          -                return false;
+          -            }
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +            [engine_ connect:player_ to:engine_.mainMixerNode format:format_];
+          +#pragma clang diagnostic pop
+           #if !TARGET_OS_IPHONE
+                       applyOutputCycle();
+           #endif
+          @@ -401,7 +391,7 @@ public:
+                       // Before the player plays, so that its first completion has it.
+                       if (engineRuns)
+                           measureOutputLatency();
+          -            if (!engineRuns || ![player_ playAndReturnError:&error]) {
+          +            if (!engineRuns || !startPlayer(player_)) {
+                           deactivateSession();
+                           failToStart();
+                           return true;
+          @@ -588,7 +578,7 @@ public:
+                               (engine_.isRunning || [engine_ startAndReturnError:&error]);
+                           if (engineRuns)
+                               measureOutputLatency();
+          -                if (engineRuns && [player_ playAndReturnError:&error]) {
+          +                if (engineRuns && startPlayer(player_)) {
+                               faulted_ = false;
+                           } else {
+                               abortPending();
+          @@ -834,7 +824,7 @@ private:
+                                 // the periods handed to it later start at once instead
+                                 // of after the player's own start-up.
+                                 if (running) {
+          -                          (void)[player playAndReturnError:&error];
+          +                          (void)startPlayer(player);
+                                     // The engine reports that it runs well before the
+                                     // audio hardware delivers its first cycle: a fifth
+                                     // of a second has been measured on the iPad mini
+          @@ -900,7 +890,7 @@ private:
+                       if (engine_.isRunning || [engine_ startAndReturnError:&error]) {
+                           measureOutputLatency();
+                           leaveMute();
+          -                playing = [player_ playAndReturnError:&error];
+          +                playing = startPlayer(player_);
+                       }
+                   } @catch (NSException*) {
+                   }
+          @@ -1270,8 +1260,7 @@ private:
                id __strong configurationObserver_;
            #if TARGET_OS_IPHONE
                id __strong routeObserver_;
-          +    id __strong legacyInterruptionObserver_;
-               id __strong deactivationObserver_;
-               id __strong resumptionObserver_;
+          -    id __strong deactivationObserver_;
+          -    id __strong resumptionObserver_;
+          +    id __strong interruptionObserver_;
                // The system has the session, and no end has come yet.
+               bool interrupted_ {};
+               // The stream runs but plays nothing: the mute clock completes its periods.
           diff --git a/darwin/platform/apple/video_decoder.mm b/darwin/platform/apple/video_decoder.mm
           index 7cab314f7..fba3d97c3 100644
           --- a/darwin/platform/apple/video_decoder.mm
@@ -488,6 +493,23 @@ jobs:
                }();
                return available;
            }
+          diff --git a/darwin/runtime/native_kernel_layout.cpp b/darwin/runtime/native_kernel_layout.cpp
+          index b00353cf4..a6d96f029 100644
+          --- a/darwin/runtime/native_kernel_layout.cpp
+          +++ b/darwin/runtime/native_kernel_layout.cpp
+          @@ -159,9 +159,9 @@ NativeKernelLayout reserve_native_kernel_window(
+           		geometry.window_end - geometry.window_start);
+           	/* Reserve the window before the guest is brought up so nothing else can
+           	 * take part of it. The address the geometry names is tried first, so a
+          -	 * host that still offers it keeps the established layout. iOS 27 does
+          -	 * not: an app's usable virtual range moved, no hint inside the
+          -	 * compile-time envelope is honoured any more, and the kernel image would
+          +	 * host that still offers it keeps the established layout. On hosts where
+          +	 * the usable virtual range moved, no hint inside the compile-time
+          +	 * envelope is honoured, and the kernel image would
+           	 * be placed outside the window. Such a host is asked where a window of
+           	 * this size fits instead of being told. A macOS kernel is built for its
+           	 * address and gets no other.
           diff --git a/dependencies/README.md b/dependencies/README.md
           index 158e46919..4a871378c 100644
           --- a/dependencies/README.md
@@ -612,6 +634,284 @@ jobs:
            and never invoke Kbuild: one mainline artifact for arm64 userspace on macOS and
            the iOS device, a separately identified 4 KiB mainline slice for macOS x86_64
            userspace, and a separate accepted 4 KiB `android-6.18` artifact (the same
+          diff --git a/tests/integration/audio/ios_interruption_tests.mm b/tests/integration/audio/ios_interruption_tests.mm
+          index 17306349d..9a748cade 100644
+          --- a/tests/integration/audio/ios_interruption_tests.mm
+          +++ b/tests/integration/audio/ios_interruption_tests.mm
+          @@ -609,16 +609,6 @@ void interruptionMutesAndResumes()
+                   "every played period reports the output's latency, and only that",
+                   seen.text());
+           
+          -    postDeactivation(AVAudioSessionDeactivationSourceApp, false);
+          -    seen = stream.window(400ms, 1500ms);
+          -    check(seen.playing(), "the app's own deactivation leaves playback running",
+          -        seen.text());
+          -    postDeactivation(AVAudioSessionDeactivationSourceSystem, false);
+          -    seen = stream.window(400ms, 1500ms);
+          -    check(seen.playing(),
+          -        "a system deactivation that interrupts nothing leaves playback running",
+          -        seen.text());
+          -
+               // The interrupter plays on, so the sink must not take the session back.
+               otherAudioPlaying = true;
+               auto mark = activations.load();
+          diff --git a/tests/integration/audio/ios_microphone_tests.mm b/tests/integration/audio/ios_microphone_tests.mm
+          index c63250a6f..2706e5b82 100644
+          --- a/tests/integration/audio/ios_microphone_tests.mm
+          +++ b/tests/integration/audio/ios_microphone_tests.mm
+          @@ -1,7 +1,7 @@
+           // SPDX-License-Identifier: GPL-2.0-or-later
+           //
+           // Starts the Apple microphone in the iOS Simulator and posts the audio-session
+          -// notifications that iOS 27 posts when another app takes the session and gives
+          +// notifications that iOS 26 posts when another app takes the session and gives
+           // it back. An interruption must stop the microphone and release the session.
+           // The system's advice to resume must start it again; without that advice it
+           // must start again only if no other app plays, because starting takes the
+          @@ -138,11 +138,14 @@ void installHooks()
+                   imp_implementationWithBlock(^AVAudioFormat*(id, AVAudioNodeBus) {
+                     return format;
+                   }));
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+               Method tap = class_getInstanceMethod([AVAudioInputNode class],
+          -        @selector(installTapOnBus:bufferSize:format:error:block:));
+          +        @selector(installTapOnBus:bufferSize:format:block:));
+               method_setImplementation(tap, imp_implementationWithBlock(
+          -        ^BOOL(id, AVAudioNodeBus, AVAudioFrameCount, AVAudioFormat*,
+          -            NSError* __autoreleasing*, AVAudioNodeTapBlock) { return YES; }));
+          +        ^(id, AVAudioNodeBus, AVAudioFrameCount, AVAudioFormat*,
+          +            AVAudioNodeTapBlock) {}));
+          +#pragma clang diagnostic pop
+               Method untap = class_getInstanceMethod(
+                   [AVAudioInputNode class], @selector(removeTapOnBus:));
+               method_setImplementation(untap,
+          @@ -168,10 +171,14 @@ struct Recording final {
+           // system does not give.
+           void postRecommendationWithoutContext()
+           {
+          -    [[NSNotificationCenter defaultCenter]
+          -        postNotificationName:AVAudioSessionResumptionRecommendationNotification
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          +    [NSNotificationCenter.defaultCenter
+          +        postNotificationName:AVAudioSessionInterruptionNotification
+                                 object:[AVAudioSession sharedInstance]
+          -                    userInfo:nil];
+          +                    userInfo:@{AVAudioSessionInterruptionTypeKey :
+          +                        @(AVAudioSessionInterruptionTypeEnded)}];
+          +#pragma clang diagnostic pop
+           }
+           
+           void startsAndStops()
+          @@ -190,20 +197,6 @@ void startsAndStops()
+                   "stopping stops the engine and releases the session", seen.text());
+           }
+           
+          -void deactivationsThatInterruptNothing()
+          -{
+          -    otherAudioPlaying = false;
+          -    Recording recording;
+          -    check(recording.start(), "the microphone starts before the deactivations");
+          -    const auto before = Counts::now();
+          -    postDeactivation(AVAudioSessionDeactivationSourceApp, false);
+          -    postDeactivation(AVAudioSessionDeactivationSourceSystem, false);
+          -    const auto seen = since(before);
+          -    check(seen == Counts {},
+          -        "the app's own deactivation and a system deactivation that "
+          -        "interrupts nothing leave the microphone running",
+          -        seen.text());
+          -}
+           
+           void interruptionStopsTheMicrophone()
+           {
+          @@ -356,26 +349,23 @@ void stoppedAndDestroyedMicrophones()
+               }
+           }
+           
+          -// The notification iOS 27 deprecates is no longer observed.
+          -void deprecatedNotificationIsIgnored()
+          +// A notification missing its required interruption type is ignored.
+          +void malformedNotificationIsIgnored()
+           {
+               otherAudioPlaying = false;
+               Recording recording;
+          -    check(recording.start(), "the microphone starts before the old notification");
+          +    check(recording.start(), "the microphone starts before the malformed notification");
+               const auto before = Counts::now();
+           #pragma clang diagnostic push
+           #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+               [[NSNotificationCenter defaultCenter]
+                   postNotificationName:AVAudioSessionInterruptionNotification
+                                 object:[AVAudioSession sharedInstance]
+          -                    userInfo:@{
+          -                        AVAudioSessionInterruptionTypeKey :
+          -                            @(AVAudioSessionInterruptionTypeBegan)
+          -                    }];
+          +                    userInfo:nil];
+           #pragma clang diagnostic pop
+               const auto seen = since(before);
+               check(seen == Counts {},
+          -        "the deprecated interruption notification does nothing", seen.text());
+          +        "a malformed interruption notification does nothing", seen.text());
+           }
+           
+           } // namespace
+          @@ -385,14 +375,13 @@ int main()
+               @autoreleasepool {
+                   installHooks();
+                   startsAndStops();
+          -        deactivationsThatInterruptNothing();
+                   interruptionStopsTheMicrophone();
+                   adviceToResumeStartsIt();
+                   noAdviceWhileAnotherAppPlays();
+                   noAdviceWhileNoAppPlays();
+                   guestRestartsRecording();
+                   stoppedAndDestroyedMicrophones();
+          -        deprecatedNotificationIsIgnored();
+          +        malformedNotificationIsIgnored();
+               }
+               std::printf("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL",
+                   failures);
+          diff --git a/tests/integration/audio/ios_session_notifications.hpp b/tests/integration/audio/ios_session_notifications.hpp
+          index c9828cb70..4491fb321 100644
+          --- a/tests/integration/audio/ios_session_notifications.hpp
+          +++ b/tests/integration/audio/ios_session_notifications.hpp
+          @@ -1,17 +1,6 @@
+           // SPDX-License-Identifier: GPL-2.0-or-later
+           #pragma once
+           
+          -#import <AVFAudio/AVFAudio.h>
+          -
+          -// What iOS 27 posts when the session becomes inactive: for the app's own
+          -// deactivation, or for the system's, which carries an interruption context
+          -// when another app caused it.
+          -void postDeactivation(AVAudioSessionDeactivationSource source, bool interrupted);
+          -
+          -// Another app takes the session: the system deactivates it with an
+          -// interruption context.
+          +// The iOS 26 interruption notification and its advice to resume.
+           void postInterruptionBegan();
+          -
+          -// What iOS 27 posts when the interrupter lets go, with the system's advice on
+          -// resuming.
+           void postInterruptionEnded(bool shouldResume);
+          diff --git a/tests/integration/audio/ios_session_notifications.mm b/tests/integration/audio/ios_session_notifications.mm
+          index b9b15e00b..4f20a13cb 100644
+          --- a/tests/integration/audio/ios_session_notifications.mm
+          +++ b/tests/integration/audio/ios_session_notifications.mm
+          @@ -1,95 +1,31 @@
+           // SPDX-License-Identifier: GPL-2.0-or-later
+          -//
+          -// The audio-session notifications iOS 27 posts when another app takes the
+          -// session and gives it back, for the Simulator tests of the Apple sink and
+          -// the Apple microphone. The Simulator never interrupts a session, so the tests
+          -// post what an interruption would.
+          +// The Simulator does not interrupt audio sessions, so tests post the same
+          +// notification and userInfo values that iOS 26 sends on a device.
+           
+           #include "ios_session_notifications.hpp"
+          -
+          +#import <AVFAudio/AVFAudio.h>
+           #import <Foundation/Foundation.h>
+          -#import <objc/runtime.h>
+          -
+          -// iOS creates the contexts its notifications carry and offers no initializer,
+          -// so each is a subclass that answers the reads the sink and the
+          -// microphone make.
+          -@interface InterruptionContextDouble : AVAudioSessionInterruptionContext
+          -@end
+          -
+          -@implementation InterruptionContextDouble
+          -- (AVAudioSessionInterruptionReason)reason
+          -{
+          -    return AVAudioSessionInterruptionReasonDefault;
+          -}
+          -@end
+          -
+          -@interface DeactivationContextDouble : AVAudioSessionDeactivationContext
+          -@property(nonatomic) AVAudioSessionDeactivationSource sourceDouble;
+          -@property(nonatomic, strong) AVAudioSessionInterruptionContext* interruptionDouble;
+          -@end
+          -
+          -@implementation DeactivationContextDouble
+          -- (AVAudioSessionDeactivationSource)source
+          -{
+          -    return self.sourceDouble;
+          -}
+          -
+          -- (AVAudioSessionInterruptionContext*)interruptionContext
+          -{
+          -    return self.interruptionDouble;
+          -}
+          -@end
+          -
+          -@interface ResumptionContextDouble : AVAudioSessionResumptionContext
+          -@property(nonatomic) AVAudioSessionResumptionRecommendation recommendationDouble;
+          -@end
+          -
+          -@implementation ResumptionContextDouble
+          -- (AVAudioSessionResumptionRecommendation)recommendation
+          -{
+          -    return self.recommendationDouble;
+          -}
+          -@end
+          -
+          -namespace {
+          -
+          -template <class Context> Context* make()
+          -{
+          -    return static_cast<Context*>(class_createInstance([Context class], 0));
+          -}
+          -
+          -} // namespace
+          -
+          -void postDeactivation(
+          -    AVAudioSessionDeactivationSource source, bool interrupted)
+          -{
+          -    auto* context = make<DeactivationContextDouble>();
+          -    context.sourceDouble = source;
+          -    context.interruptionDouble =
+          -        interrupted ? make<InterruptionContextDouble>() : nil;
+          -    [[NSNotificationCenter defaultCenter]
+          -        postNotificationName:AVAudioSessionDidBecomeInactiveNotification
+          -                      object:[AVAudioSession sharedInstance]
+          -                    userInfo:@{
+          -                        AVAudioSessionDeactivationContextKey : context
+          -                    }];
+          -}
+           
+          +#pragma clang diagnostic push
+          +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+           void postInterruptionBegan()
+           {
+          -    postDeactivation(AVAudioSessionDeactivationSourceSystem, true);
+          +    [NSNotificationCenter.defaultCenter
+          +        postNotificationName:AVAudioSessionInterruptionNotification
+          +                      object:[AVAudioSession sharedInstance]
+          +                    userInfo:@{AVAudioSessionInterruptionTypeKey :
+          +                        @(AVAudioSessionInterruptionTypeBegan)}];
+           }
+           
+           void postInterruptionEnded(bool shouldResume)
+           {
+          -    auto* context = make<ResumptionContextDouble>();
+          -    context.recommendationDouble = shouldResume ?
+          -        AVAudioSessionResumptionRecommendationShouldResume :
+          -        AVAudioSessionResumptionRecommendationShouldNotResume;
+          -    [[NSNotificationCenter defaultCenter]
+          -        postNotificationName:AVAudioSessionResumptionRecommendationNotification
+          +    [NSNotificationCenter.defaultCenter
+          +        postNotificationName:AVAudioSessionInterruptionNotification
+                                 object:[AVAudioSession sharedInstance]
+                               userInfo:@{
+          -                        AVAudioSessionResumptionContextKey : context
+          +                        AVAudioSessionInterruptionTypeKey : @(AVAudioSessionInterruptionTypeEnded),
+          +                        AVAudioSessionInterruptionOptionKey :
+          +                            @(shouldResume ? AVAudioSessionInterruptionOptionShouldResume : 0)
+                               }];
+           }
+          +#pragma clang diagnostic pop
           diff --git a/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh b/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh
           index ead93ec93..86c23b4bb 100755
           --- a/tests/tooling/dependencies/test_verify_apple_gpu_software_prefix.sh
@@ -795,15 +1095,21 @@ jobs:
           echo "$PWD/.build/gpu-tools-venv/bin" >> "$GITHUB_PATH"
           xcodebuild -downloadComponent MetalToolchain
           echo "fingerprint=$({ xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version; xcrun clang --version; } | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - name: Check video API availability before building dependencies
+      - name: Compile video and audio against the iOS 26 deployment floor
         run: |
-          for source in darwin/platform/apple/video_decoder.mm darwin/platform/apple/video_encoder.mm darwin/platform/apple/video_encoder_discovery.mm; do
-            xcrun --sdk iphoneos clang++ -target arm64-apple-ios26.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -std=c++20 -fobjc-arc -Wall -Wextra -Werror -I darwin/platform -fsyntax-only "$source"
+          for source in darwin/platform/apple/video_decoder.mm darwin/platform/apple/video_encoder.mm darwin/platform/apple/video_encoder_discovery.mm darwin/device/audio/*.mm; do
+            xcrun --sdk iphoneos clang++ -target arm64-apple-ios26.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -std=c++20 -fobjc-arc -Wall -Wextra -Werror -Werror=unguarded-availability-new -I darwin/platform -I darwin -I darwin/device/audio -I darwin/device/vhost_user -fsyntax-only "$source"
           done
+      - name: Compile the shared interface for iOS 26
+        run: |
+          xcodebuild -project Andarium/Andarium.xcodeproj -scheme AndariumPreview -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/Andarium-preview" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Test the Swift models
         run: |
           swift test --package-path GuestHost/Core
           swift test --package-path Andarium/AndariumCore
+      - name: Check audio interruption and microphone recovery
+        run: |
+          python3 tests/integration/audio/run_ios_interruption.py --sink-directory "$PWD/darwin/device/audio" --include-directory "$PWD/darwin" --deployment-target 26.0
       - name: Download and verify accepted kernel and Android image
         run: |
           mkdir -p "$RUNNER_TEMP/andarium-assets" .build/kernel/artifacts
@@ -848,9 +1154,6 @@ jobs:
           cmake --preset kernarium-ios-device-android
           cmake --build --preset kernarium-ios-device-android
           Kernarium/scripts/package-ios-frameworks.sh --sdk device --runtimes android
-      - name: Check audio interruption and microphone recovery
-        run: |
-          python3 tests/integration/audio/run_ios_interruption.py --sink-directory "$PWD/darwin/device/audio" --include-directory "$PWD/darwin" --deployment-target 27.0
       - name: Build unsigned release for sideloading
         run: |
           xcodebuild -project Andarium/Andarium.xcodeproj -scheme Andarium -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/Andarium-build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CURRENT_PROJECT_VERSION="$((${GITHUB_RUN_NUMBER} + 1000))" build
