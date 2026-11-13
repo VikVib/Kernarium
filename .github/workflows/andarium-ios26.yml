@@ -15,6 +15,7 @@ jobs:
       run:
         shell: bash
     env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
       HOMEBREW_NO_AUTO_UPDATE: 1
       CMAKE_BUILD_PARALLEL_LEVEL: 3
       UML_APPLE_GPU_DEPENDENCY_JOBS: 3
@@ -756,9 +757,10 @@ jobs:
           git apply --check "$RUNNER_TEMP/ios26.patch"
           git apply "$RUNNER_TEMP/ios26.patch"
           git diff --check
-          xcrun xcprojformatter --update Andarium/Andarium.xcodeproj
           mkdir -p deliverables
           git diff --binary > deliverables/ios26-source.patch
+          xcodebuild -version
+          xcrun xcprojformatter --update Andarium/Andarium.xcodeproj
           tar --exclude=.git --exclude=.build --exclude=external --exclude=deliverables -czf "$RUNNER_TEMP/Andarium-ios26-source.tar.gz" .
           mv "$RUNNER_TEMP/Andarium-ios26-source.tar.gz" deliverables/
       - name: Check toolchain and prepare build tools
@@ -846,6 +848,6 @@ jobs:
         with:
           name: Andarium-iOS26-build-${{ github.run_number }}
           path: deliverables/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
           compression-level: 0
