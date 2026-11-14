@@ -88,7 +88,9 @@ nonisolated final class LogCapture: Sendable {
     private static let keptLines = 40
     private static let longestLine = 300
 
-    private struct State {
+    /// Nonisolated like the class: the target's default isolation is the main
+    /// actor, and the capture thread updates this.
+    nonisolated private struct State: Sendable {
         var started = false
         var lines: [String] = []
         var partial = Data()
