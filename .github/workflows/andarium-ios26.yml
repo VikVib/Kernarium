@@ -1178,7 +1178,12 @@ jobs:
           print(f"simulator {udid}: {device_type} on {runtime}", flush=True)
           subprocess.run(["xcrun", "simctl", "boot", udid], check=True, timeout=300)
           subprocess.run(["xcrun", "simctl", "bootstatus", udid], check=True, timeout=600)
-          runner.settle(udid, runner.Deadline(400))
+          # Waiting for the device to go quiet only helps; a runner too busy to
+          # answer `ps` in time must not fail the build.
+          try:
+              runner.settle(udid, runner.Deadline(400))
+          except (subprocess.TimeoutExpired, OSError) as error:
+              print(f"note: not waiting for the simulator to settle: {error}", flush=True)
           BOOT
       - name: Check audio interruption and microphone recovery
         env:
