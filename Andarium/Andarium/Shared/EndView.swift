@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+import AndariumCore
 import SwiftUI
 import UIKit
 
