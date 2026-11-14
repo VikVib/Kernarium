@@ -2,6 +2,11 @@
 name: Build Andarium for iOS 26
 on:
   workflow_dispatch:
+    inputs:
+      run_checks:
+        description: Also run the preview build, Swift tests and simulator audio tests (adds about 15 minutes)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -1148,9 +1153,11 @@ jobs:
             xcrun --sdk iphoneos clang++ -target arm64-apple-ios26.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -std=c++20 -fobjc-arc -Wall -Wextra -Werror -Werror=unguarded-availability-new -I darwin/platform -I darwin -I darwin/device/audio -I darwin/device/vhost_user -fsyntax-only "$source"
           done
       - name: Compile the shared interface for iOS 26
+        if: inputs.run_checks
         run: |
           xcodebuild -project Andarium/Andarium.xcodeproj -scheme AndariumPreview -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/Andarium-preview" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Test the Swift models
+        if: inputs.run_checks
         run: |
           swift test --package-path GuestHost/Core
           swift test --package-path Andarium/AndariumCore
@@ -1158,6 +1165,7 @@ jobs:
       # its tests while the device is still booting and starving the runner's CPU.
       - name: Boot a simulator for the audio tests
         id: audio-simulator
+        if: inputs.run_checks
         timeout-minutes: 15
         run: |
           python3 - <<'BOOT'
@@ -1186,6 +1194,7 @@ jobs:
               print(f"note: not waiting for the simulator to settle: {error}", flush=True)
           BOOT
       - name: Check audio interruption and microphone recovery
+        if: inputs.run_checks
         env:
           AUDIO_SIMULATOR: ${{ steps.audio-simulator.outputs.udid }}
         run: |
@@ -1245,7 +1254,16 @@ jobs:
           Kernarium/scripts/package-ios-frameworks.sh --sdk device --runtimes android
       - name: Build unsigned release for sideloading
         run: |
-          xcodebuild -project Andarium/Andarium.xcodeproj -scheme Andarium -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/Andarium-build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CURRENT_PROJECT_VERSION="$((${GITHUB_RUN_NUMBER} + 1000))" build
+          # Keep the log, and on failure put the compiler's errors on the run's
+          # summary page, where they are readable without digging through it.
+          if ! xcodebuild -project Andarium/Andarium.xcodeproj -scheme Andarium -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/Andarium-build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CURRENT_PROJECT_VERSION="$((${GITHUB_RUN_NUMBER} + 1000))" build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"; then
+            grep -E '(error|fatal error): ' "$RUNNER_TEMP/xcodebuild.log" | sort -u | head -20 | while IFS= read -r line; do
+              echo "::error title=xcodebuild::${line//%/%25}"
+            done
+            echo "---- failed build commands ----"
+            grep -A 30 'The following build commands failed' "$RUNNER_TEMP/xcodebuild.log" || true
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           ditto "$RUNNER_TEMP/Andarium-build/Build/Products/Release-iphoneos/Andarium.app" "$RUNNER_TEMP/ipa/Payload/Andarium.app"
           python3 - "$RUNNER_TEMP/ipa/Payload/Andarium.app" <<'PY'
@@ -1277,12 +1295,28 @@ jobs:
           (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/deliverables/Andarium-ios26-unsigned.ipa" Payload)
           shasum -a 256 deliverables/Andarium-ios26-unsigned.ipa > deliverables/SHA256SUMS.txt
           cp Andarium/Config/Andarium.entitlements deliverables/Required-entitlements.plist
-      - name: Upload IPA and corresponding source
+      # The IPA is its own artifact, so installing the app does not mean
+      # downloading the source archive too.
+      - name: Upload IPA
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Andarium-iOS26-build-${{ github.run_number }}
-          path: deliverables/
+          name: Andarium-iOS26-IPA-${{ github.run_number }}
+          path: |
+            deliverables/Andarium-ios26-unsigned.ipa
+            deliverables/SHA256SUMS.txt
+            deliverables/Required-entitlements.plist
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
+      - name: Upload corresponding source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Andarium-iOS26-source-${{ github.run_number }}
+          path: |
+            deliverables/
+            !deliverables/Andarium-ios26-unsigned.ipa
           if-no-files-found: warn
           retention-days: 14
           compression-level: 0
