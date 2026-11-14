@@ -260,7 +260,9 @@ final class LiveRuntime: RuntimeDriver {
 
     private func end(startFailure: String) {
         print("Andarium: cannot start the guest: \(startFailure)")
-        model?.runEnded(RunEnd(result: -1, startFailure: startFailure), uptimeSeconds: nil)
+        model?.runEnded(
+            RunEnd(result: -1, startFailure: startFailure, recentLog: LogCapture.shared.recentLines()),
+            uptimeSeconds: nil)
     }
 
     /// What a start decides before the runtime runs, beyond the guest: in a
@@ -509,7 +511,14 @@ final class LiveRuntime: RuntimeDriver {
         // than before it.
         model?.host.freeStorageBytes = freeSpace()
         let loop = result == Int32(KERNARIUM_RUNTIME_RESULT_RESTART_LOOP)
-        model?.runEnded(RunEnd(result: result, restartedInALoop: loop), uptimeSeconds: uptime)
+        var end = RunEnd(result: result, restartedInALoop: loop)
+        if result != 0, !loop {
+            // Measured after the run let go of its memory, so the numbers are
+            // what a new start would get.
+            end.diagnosis = HostDiagnostics.measure(guestMemoryMiB: model?.guest?.memoryMiB ?? 0)
+            end.recentLog = LogCapture.shared.recentLines()
+        }
+        model?.runEnded(end, uptimeSeconds: uptime)
     }
 
     // MARK: Keys

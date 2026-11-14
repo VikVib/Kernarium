@@ -4,7 +4,9 @@
 #include "host_environment.hpp"
 #include "memory/mmu/address_layout.hpp"
 
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 
 #include <sys/mman.h>
@@ -95,11 +97,17 @@ NativeKernelLayout prepare_native_kernel_layout(
 	const auto layout = reserve_process_native_window(
 		product.geometry, product.placement);
 	if (!layout.valid) {
+		const int error = errno;
 		std::fprintf(stderr,
-			"UML: cannot reserve a %llu-byte native kernel window\n",
+			"UML: cannot reserve a %llu MiB native kernel window for "
+			"%llu MiB of guest memory (%s); iOS limits the address "
+			"space of an app without the extended virtual addressing "
+			"entitlement\n",
 			static_cast<unsigned long long>(
-				product.geometry.window_end -
-				product.geometry.window_start));
+				(product.geometry.window_end -
+				 product.geometry.window_start) >> 20),
+			static_cast<unsigned long long>(guest_memory >> 20),
+			std::strerror(error));
 		return {.reservation_failed = true};
 	}
 	return layout;

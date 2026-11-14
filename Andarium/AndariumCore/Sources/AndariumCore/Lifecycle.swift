@@ -140,16 +140,31 @@ public struct RunEnd: Equatable, Sendable {
     public var restartedInALoop: Bool
     /// Why the run could not begin, when it did not.
     public var startFailure: String?
+    /// What the process could get from iOS when the run failed.
+    public var diagnosis: StartDiagnosis?
+    /// The last lines Andarium and its runtime logged before the end.
+    public var recentLog: [String]
 
-    public init(result: Int32, restartedInALoop: Bool = false, startFailure: String? = nil) {
+    public init(
+        result: Int32, restartedInALoop: Bool = false, startFailure: String? = nil,
+        diagnosis: StartDiagnosis? = nil, recentLog: [String] = []
+    ) {
         self.result = result
         self.restartedInALoop = restartedInALoop
         self.startFailure = startFailure
+        self.diagnosis = diagnosis
+        self.recentLog = recentLog
     }
 
     public var poweredOff: Bool { result == 0 && !restartedInALoop && startFailure == nil }
 
     public var phase: Phase { poweredOff ? .home : .failed }
+
+    /// The most likely cause in one plain sentence, when the diagnosis gives one.
+    public func hint(uptimeSeconds: Int?) -> String? {
+        guard startFailure == nil, !restartedInALoop else { return nil }
+        return diagnosis?.hint(result: result, uptimeSeconds: uptimeSeconds)
+    }
 
     /// The lines the failure screen offers to copy.
     public func report(
@@ -163,6 +178,8 @@ public struct RunEnd: Equatable, Sendable {
             "it could not start (\(startFailure))"
         } else if restartedInALoop {
             "the guest kept restarting"
+        } else if let name = StartDiagnosis.name(ofResult: result) {
+            "runtime result \(result) (\(name))"
         } else {
             "runtime result \(result)"
         }
@@ -170,6 +187,16 @@ public struct RunEnd: Equatable, Sendable {
             lines.append("Guest ended: \(reason) after \(Formats.elapsed(uptimeSeconds))")
         } else {
             lines.append("Guest ended: \(reason)")
+        }
+        if let hint = hint(uptimeSeconds: uptimeSeconds) {
+            lines.append("Likely cause: \(hint)")
+        }
+        if let diagnosis {
+            lines.append(contentsOf: diagnosis.lines)
+        }
+        if !recentLog.isEmpty {
+            lines.append("Recent log:")
+            lines.append(contentsOf: recentLog)
         }
         return lines.joined(separator: "\n")
     }

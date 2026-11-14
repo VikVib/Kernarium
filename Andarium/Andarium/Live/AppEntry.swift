@@ -159,6 +159,8 @@ struct AppEntry {
         model.adoptDiagnostics(
             in: markerDirectory, containers: Self.containerPaths(), endedOutOfForeground: closedInBackground)
         ExitReports.shared.start(keepingIn: markerDirectory)
+        // The runtime reports why a start failed only on standard error.
+        LogCapture.shared.start()
         if carried != nil {
             #if APP_STORE
             let watched = freeSpace

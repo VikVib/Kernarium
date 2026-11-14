@@ -23,16 +23,28 @@ struct EndView: View {
                 .frame(maxWidth: 340)
                 .padding(.top, 8)
 
-            VStack(alignment: .leading, spacing: 6) {
+            if let hint {
+                Label(hint, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: 380, alignment: .leading)
+                    .padding(14)
+                    .background(Color.orange.opacity(0.15), in: .rect(cornerRadius: 16))
+                    .padding(.top, 20)
+            }
+
+            ScrollView {
                 Text(report)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
             }
-            .padding(14)
+            .frame(maxHeight: 280)
             .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
             .frame(maxWidth: 380)
-            .padding(.top, 24)
+            .padding(.top, hint == nil ? 24 : 12)
             Button {
                 UIPasteboard.general.string = report
                 withAnimation { copied = true }
@@ -53,4 +65,5 @@ struct EndView: View {
     }
 
     private var report: String { model.runReport }
+    private var hint: String? { model.runEnd.hint(uptimeSeconds: model.runUptimeSeconds) }
 }
